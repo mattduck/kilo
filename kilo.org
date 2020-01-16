@@ -1,0 +1,29 @@
+* Kilo
+
+This is my implementation of the Kilo text editor, written by following [[https://viewsourcecode.org/snaptoken/kilo/index.html][Build
+your own text editor]]. It's written as an org-mode file, as an exercise for me to
+learn a bit more about C, building terminal applications, and literate
+programming with org-mode.
+
+
+* Compilation
+
+This just concatenates all the C snippets to ~kilo.c~, and then runs ~make~.
+
+#+begin_src emacs-lisp :results silent
+    (defun md/kilo-compile ()
+      (interactive)
+      (setq-local org-confirm-babel-evaluate nil)
+      (org-babel-tangle nil "kilo.c" "c")
+      (compile "make"))
+    (md/kilo-compile)
+#+end_src
+
+
+* Main
+
+#+begin_src c
+  int main() {
+    return 0;
+  }
+#+end_src
