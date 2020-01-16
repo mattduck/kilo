@@ -1,3 +1,5 @@
+[2020-01-16 Thu 11:37] up to step 33
+
 * Kilo
 
 This is my implementation of the Kilo text editor, written by following [[https://viewsourcecode.org/snaptoken/kilo/index.html][Build
@@ -27,37 +29,225 @@ This just concatenates all the C snippets to ~kilo.c~, and then runs ~make~.
   #include <errno.h>
   #include <stdio.h>
   #include <stdlib.h>
+  #include <string.h>
+  #include <sys/ioctl.h>
   #include <termios.h>
   #include <unistd.h>
 #+end_src
 
+** Constants
+
+Some of these macros take a parameter, similar to functions. The main advantage
+of doing this is that the preprocessor replaces the template so there's no stack
+or function call needed. There are downsides too: if you have a lot of macros
+it can increase the binary size, and they're limited because they're not
+functions - you can't return a parameter, you can't do recursion, etc.
+
+#+begin_src c
+#define KILO_VERSION "0.0.1"
+#+end_src
+
+*** Control key
+
+In ASCII, the control character strips bits 5 and 6 from whatever key you
+press. For example, ~h~ is 01101000 and ~C-h~ is 00001000
+
+#+begin_src c
+  #define CTRL_KEY(k) ((k) & 0x1F)
+#+end_src
+
+#+begin_src c
+  enum editorKey {
+                  ARROW_LEFT = 1000,
+                  ARROW_RIGHT,
+                  ARROW_UP,
+                  ARROW_DOWN,
+                  DEL_KEY,
+                  HOME_KEY,
+                  END_KEY,
+                  PAGE_UP,
+                  PAGE_DOWN
+  };
+#+end_src
+
+** State
+
+#+begin_src c
+  struct editorConfig {
+    int cx, cy;
+    int screenrows;
+    int screencols;
+    struct termios orig_termios;
+  };
+
+  struct editorConfig E;
+#+end_src
+
+** Append buffer
+
+~abuf~ will store our screen updates for writing. This is preferable to calling
+~write()~ directly each time, because it reduces the number of updates, avoids
+screen flickering, etc.
+
+#+begin_src c
+  struct abuf {
+    char *b;
+    int len;
+  };
+
+  #define ABUF_INIT {NULL, 0}  // Represents an empty buffer
+
+  void abAppend(struct abuf *ab, const char *s, int len) {
+    // Get a block of memory that is the size of the current string, plus the
+    // string we're appending.
+    char *new = realloc(ab->b, ab->len + len);
+
+    if (new == NULL) return;
+    memcpy(&new[ab->len], s, len);  // copy "s" after the current data
+    ab->b = new;
+    ab->len += len;
+  }
+
+  void abFree(struct abuf *ab) {
+    free(ab->b);
+  }
+#+end_src
+
 ** Exiting
 
-Most C library functions that fail set the global ~errono~. ~perror()~ looks at this
+Most C library functions that fail set the global ~errno~. ~perror()~ looks at this
 and prints a descriptive message for it - for example, "inappropriate ioctl for
 device".
 
 #+begin_src c
-void die(const char *s) {
-  perror(s);
-  exit(1);
-}
+  void die(const char *s) {
+    write(STDOUT_FILENO, "\x1b[2J", 4);  // clear screen
+    write(STDOUT_FILENO, "\x1b[H", 3);  // reposition cursor
+    perror(s);
+    exit(1);
+  }
 #+end_src
 
-** Raw mode
+** Terminal
+
+#+begin_src c
+  int editorReadKey() {
+    int nread;
+    char c;
+    // read() returns the number of bytes read
+    while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
+      if (nread == -1 && errno != EAGAIN) die("read");
+    }
+
+    if (c == '\x1b') {
+      char seq[3];
+      if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
+      if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+      if (seq[0] == '[') {
+
+        // Page up / down, which are represented by \x1b[5~ and \x1b[6~
+        if (seq[1] >= '0' && seq[1] <= '9') {
+          if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
+          if (seq[2] == '~') {
+            switch (seq[1]) {
+            case '1': return HOME_KEY;
+            case '3': return DEL_KEY;
+            case '4': return END_KEY;
+            case '5': return PAGE_UP;
+            case '6': return PAGE_DOWN;
+            case '7': return HOME_KEY;
+            case '8': return END_KEY;
+            }
+          }
+        } else {
+
+          // Arrows
+          switch (seq[1]) {
+          case 'A': return ARROW_UP;
+          case 'B': return ARROW_DOWN;
+          case 'C': return ARROW_RIGHT;
+          case 'D': return ARROW_LEFT;
+          case 'H': return HOME_KEY;
+          case 'F': return END_KEY;
+          }
+        }
+      } else if (seq[0] == '0') {
+        switch (seq[1]) {
+        case 'H': return HOME_KEY;
+        case 'F': return END_KEY;
+        }
+      }
+      return '\x1b';
+    } else {
+      return c;
+    }
+  }
+#+end_src
+
+If we read an escape character, immediately read two more bytes into ~seq~. If the
+reads timeout, then assume the user just pressed escape.
+
+
+The "n" command below queries the terminal for status information. ~6~ asks for
+the cursor position.
+
+#+begin_src c
+  int getCursorPosition (int *rows, int *cols) {
+    char buf[32];
+    unsigned int i = 0;
+    if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1;
+    while (i < sizeof(buf) -1){
+      if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
+      if (buf[i] == 'R') break;
+      i++;
+    }
+    buf[i] = '\0';  // printf expects stings to end with a 0 byte
+
+    if (buf[0] != '\xb' || buf[1] != '[') return -1;
+
+    // sscanf will parse out two integers ("%d;%d") and put them into rows/cols.
+    if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) return -1;
+
+    printf("\r\n&buf[1]: '%s'\r\n", &buf[1]);
+    editorReadKey();
+    return -1;
+  }
+#+end_src
+
+#+begin_src c
+  int getWindowSize(int *rows, int *cols) {
+    struct winsize ws;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
+      if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;
+      return getCursorPosition(rows, cols);
+    } else {
+      ,*cols = ws.ws_col;
+      ,*rows = ws.ws_row;
+      return 0;
+    }
+  }
+#+end_src
+
+- TIOCGWINSZ tells the terminal to return the window size. We check for 0 in the
+  column value because "apparently" that's a possible outcome.
+
+- ~C~ is cursor forward, and ~B~ is cursor down. We assume that 999 is a large
+  enough value to position to the bottom right.
+
+*** Raw mode
 
 #+begin_src c
   struct termios orig_termios;
 
   void disableRawMode() {
-    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios) == -1) die("tcsetattr");
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1) die("tcsetattr");
   }
 
   void enableRawMode() {
-    if (tcgetattr(STDIN_FILENO, &orig_termios) == -1) die("tcgetatr");
+    if (tcgetattr(STDIN_FILENO, &E.orig_termios) == -1) die("tcgetatr");
     atexit(disableRawMode);
 
-    struct termios raw = orig_termios;
+    struct termios raw = E.orig_termios;
     raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
     raw.c_oflag &= ~(OPOST);
     raw.c_cflag |= ~(CS8);
@@ -97,31 +287,155 @@ void die(const char *s) {
   input needed before ~read()~ can return - we use 0 so that ~read()~ will return as
   soon as there's any input to read. VTIME is the timeout value in 10ths of a second.
 
+
+** Output
+
+#+begin_src c
+  void editorDrawRows(struct abuf *ab) {
+    int y;
+    for (y = 0; y < E.screenrows; y++) {
+      if (y == E.screenrows / 3) {
+        char welcome[80];
+        int welcomelen = snprintf(welcome, sizeof(welcome),
+                                  "Kilo editor -- version %s", KILO_VERSION);
+        if (welcomelen > E.screencols) welcomelen = E.screencols;
+        // Add spaces for padding to center the welcome message
+        int padding = (E.screencols - welcomelen) / 2;
+        if (padding) {
+          abAppend(ab, "~", 1);
+          padding--;
+        }
+        while (padding--) abAppend(ab, " ", 1);
+        abAppend(ab, welcome, welcomelen);
+      } else {
+        abAppend(ab, "~", 1);
+      }
+
+      abAppend(ab, "\x1b[K", 3);  // clear the rest of the row before drawing
+      if (y < E.screenrows -1) {
+        abAppend(ab, "\r\n", 2);
+      }
+    }
+  }
+#+end_src
+
+#+begin_src c
+  void editorRefreshScreen() {
+    struct abuf ab = ABUF_INIT;
+    abAppend(&ab, "\x1b[?25l", 6);  // hide cursor
+    abAppend(&ab, "\x1b[H", 3);  // reposition cursor
+    editorDrawRows(&ab);
+
+    // Move the cursor
+    char buf[32];
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", E.cy + 1, E.cx + 1);
+    abAppend(&ab, buf, strlen(buf));
+
+    abAppend(&ab, "\x1b[?25h", 6);  // show cursor
+    write(STDOUT_FILENO, ab.b, ab.len);
+    abFree(&ab);
+  }
+#+end_src
+
+- The 4 means we're writing 4 bytes. ~\x1b~ is 27, ie. the escape
+  character. Escape sequences use ESC+[ as their first two characters. ~J~ clears
+  the screen. The character before J is an argument. ~2J~ means clear the entire
+  screen. These are VT100 escape sequences, which are widely supported.
+
+- the ~[H~ escape sequence moves the cursor to the position given by the
+  coordinates. The +1 is to convert because the terminal uses 1-indexed values.
+
+** Input
+
+#+begin_src c
+  void editorMoveCursor(int key) {
+    switch (key) {
+    case ARROW_LEFT:
+      if (E.cx != 0) {
+        E.cx--;
+      }
+      break;
+    case ARROW_RIGHT:
+      if (E.cx != E.screencols - 1) {
+        E.cx++;
+      }
+      break;
+    case ARROW_UP:
+      if (E.cy != 0) {
+        E.cy--;
+      }
+      break;
+    case ARROW_DOWN:
+      if (E.cy != E.screenrows - 1) {
+        E.cy++;
+      }
+      break;
+    }
+  }
+#+end_src
+
+#+begin_src c
+  void editorProcessKeypress() {
+    int c = editorReadKey();
+    switch (c) {
+    case CTRL_KEY('q'):
+      write(STDOUT_FILENO, "\x1b[2J", 4);  // clear screen
+      write(STDOUT_FILENO, "\x1b[H", 3);  // reposition cursor
+      exit(0);
+      break;
+    case HOME_KEY:
+      E.cx = 0;
+      break;
+    case END_KEY:
+      E.cx = E.screencols - 1;
+      break;
+    case PAGE_UP:
+    case PAGE_DOWN:
+      {
+        int times = E.screenrows;
+        while (times--)
+          editorMoveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
+      }
+      break;
+    case ARROW_UP:
+    case ARROW_DOWN:
+    case ARROW_LEFT:
+    case ARROW_RIGHT:
+      editorMoveCursor(c);
+      break;
+    }
+  }
+#+end_src
 ** Main
+
+initEditor() will initialise all the fields in the E struct:
+
+#+begin_src c
+  void initEditor () {
+    E.cx = 0;  // horizontal cursor
+    E.cy = 0;  // vertical cursor
+    if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
+  }
+#+end_src
 
 #+begin_src c
   int main() {
     enableRawMode();
+    initEditor();
 
-    char c = '\0';
     while (1) {
-      if (read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN) die("read");
-      if (iscntrl(c)) {
-        printf("%d\r\n", c);  // %d is decimal
-      } else {
-        printf("%d ('%c')\r\n", c, c);  // %c is byte
-      }
-      if (c == 'q') break;
+      editorProcessKeypress();
+      editorRefreshScreen();
     }
     return 0;
   }
 #+end_src
 
 
+
 * Log
 
 Notes that I'm writing as I go.
-
 
 ** Raw mode
 
@@ -146,3 +460,29 @@ haven't used these before. Then can be disabled with the IXON termios flag.
 
 EAGAIN is returned by ~read()~ on timeout in Cygwin, instead of just
 returning 0. I'm not using Cygwin so I suspect it's safe to remove that part.
+
+** VT100 escape sequences
+
+In an escape sequence like ~\x1b[2J~, ~J~ is the function and ~2~ is an argument to
+it. I hadn't thought about this before - I think I had just treated "2J" as a
+whole.
+
+~ncurses~ uses the ~terminfo~ database to figure out the capabilities of a terminal
+and what the escape sequences for that terminal are. In our case we're just
+hardcoding the VT100 sequences.
+
+*** Home and End
+
+Home and End can have multiple representations depending on the OS, which is why
+they're added in multiple places in ~editorReadyKey()~ in step 52.
+
+** Hide the cursor when drawing
+
+This is standard practice - the cursor might jump around the screen if we're
+writing to it. This can be controlled with ~?25h~ and ~?25l~, at least in later VT
+models.
+
+** Enums
+
+If you set the first constant in an enum (as we do in step 48), then the
+remaining constants are incremented automatically.
