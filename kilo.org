@@ -5,8 +5,7 @@ your own text editor]]. It's written as an org-mode file, as an exercise for me 
 learn a bit more about C, building terminal applications, and literate
 programming with org-mode.
 
-
-* Compilation
+* Compile
 
 This just concatenates all the C snippets to ~kilo.c~, and then runs ~make~.
 
@@ -19,11 +18,131 @@ This just concatenates all the C snippets to ~kilo.c~, and then runs ~make~.
     (md/kilo-compile)
 #+end_src
 
+* Code
 
-* Main
+** Include
+
+#+begin_src c
+  #include <ctype.h>
+  #include <errno.h>
+  #include <stdio.h>
+  #include <stdlib.h>
+  #include <termios.h>
+  #include <unistd.h>
+#+end_src
+
+** Exiting
+
+Most C library functions that fail set the global ~errono~. ~perror()~ looks at this
+and prints a descriptive message for it - for example, "inappropriate ioctl for
+device".
+
+#+begin_src c
+void die(const char *s) {
+  perror(s);
+  exit(1);
+}
+#+end_src
+
+** Raw mode
+
+#+begin_src c
+  struct termios orig_termios;
+
+  void disableRawMode() {
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios) == -1) die("tcsetattr");
+  }
+
+  void enableRawMode() {
+    if (tcgetattr(STDIN_FILENO, &orig_termios) == -1) die("tcgetatr");
+    atexit(disableRawMode);
+
+    struct termios raw = orig_termios;
+    raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+    raw.c_oflag &= ~(OPOST);
+    raw.c_cflag |= ~(CS8);
+    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+
+    raw.c_cc[VMIN] = 0;
+    raw.c_cc[VTIME] = 1;  // 100ms
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
+  }
+#+end_src
+
+- TCSAFLUSH specifies when to apply the ~setattr~ change.
+
+- ECHO is a bitflag - ~&= ~~(ECHO)~ flips the echo bit off
+  (00000000000000000000000000001000). We also do this to the ICANON flag, which
+  disables canonical mode, making us read one byte at a time rather than reading
+  the whole line when enter is pressed.
+
+  IEXTEN controls ~C-v~, and ISIG controls the ~C-c~ and ~C-z~ signals.
+
+  IXON controls ~C-s~ and ~C-q~, and ICRNL controls a feature where ~\r~
+  (character 13) is turned into a newline (character 10).
+
+  OPOST controls some output processing. The main thing we want to disable here
+  (and possibly the only thing enabled by default) is the output translation of
+  ~\n~ into ~\r\n~. The terminal requires these as distinct characters to begin a
+  new line.
+
+- The CS8 line is not a flag, it's a bit mask with multiple bits. Here we set
+  the character size (CS) to 8 bits per byte. This is often a default.
+
+- ~c_lflag~ stores "local" flags, which is apparently a dumping ground for a few
+  miscellaneous things. There are also ~iflag~ (input), ~oflag~ (output) and ~clfag~
+  (control flags).
+
+- ~c_cc~ stands for "control characters". VMIN sets the minimum number of bytes of
+  input needed before ~read()~ can return - we use 0 so that ~read()~ will return as
+  soon as there's any input to read. VTIME is the timeout value in 10ths of a second.
+
+** Main
 
 #+begin_src c
   int main() {
+    enableRawMode();
+
+    char c = '\0';
+    while (1) {
+      if (read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN) die("read");
+      if (iscntrl(c)) {
+        printf("%d\r\n", c);  // %d is decimal
+      } else {
+        printf("%d ('%c')\r\n", c, c);  // %c is byte
+      }
+      if (c == 'q') break;
+    }
     return 0;
   }
 #+end_src
+
+
+* Log
+
+Notes that I'm writing as I go.
+
+
+** Raw mode
+
+By default the terminal starts in canonical/cooked mode, which captures a lot of
+user input rather than passing it straight to the program. Input is only sent to
+the program when you hit enter, and various keys have special terminal
+behaviour, like ~C-c~ and ~C-z~.
+
+Interestingly you can "break" your terminal by running Step 5, which sets some
+termios flags, and it has to be reset by the ~reset~ trick.
+
+Step 15 disables various flags that nowadays are usually disabled by default
+(but it's still good practice to disable them to enable "raw mode").
+
+
+** C-s and C-q
+
+~C-s~ stops data from being transmitted to the terminal, and ~C-q~ resumes it. I
+haven't used these before. Then can be disabled with the IXON termios flag.
+
+** EAGAIN
+
+EAGAIN is returned by ~read()~ on timeout in Cygwin, instead of just
+returning 0. I'm not using Cygwin so I suspect it's safe to remove that part.
