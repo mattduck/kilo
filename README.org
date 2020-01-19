@@ -9,8 +9,7 @@ the literate programming approach with org-mode is useful.
 
 Overall I think embedding the code in this file actually made it harder to keep
 the overall structure in my head as I went, because I was only operating on
-individuals parts at a time. Next time I will just write notes separate the code
-files.
+individuals parts at a time. Next time I will just write notes separately.
 
 I've now renamed the org-mode version to ~kilo-org.c~. For future edits I'll work
 on ~kilo.c~ directly.
@@ -118,7 +117,7 @@ been modified, the associated filename, etc. It also contains some setup and
 teardown data (like the properties of the user's terminal),
 
 ~erow~ represents a single line of text. User input results in a lot of mutation
-of ~erow~ and ~editorConfig~.
+of ~editorConfig~, particularly the rows.
 
 ~editorSyntax~ OTOH just contains information associated with a particular
 filetype, and is not affected by user input. The buffer can be associated with a
@@ -137,7 +136,7 @@ single ~editorSyntax~ struct.
 
   typedef struct erow {
     int idx;  // which row in the buffer it represents
-    int size;  // the row length
+    int size;  // the row length, excluding the null byte at the end.
     char *chars;  // the characters in the line
     int rsize; // the length of the "rendered" line, where eg. \t will expand to n spaces
     char *render;  // the "rendered" characters in the line
@@ -208,7 +207,8 @@ device".
 ** Prototypes
 
 C compiles in a single pass, so you can't always call functions that aren't
-defined yet. We can define the signature though:
+defined yet. We can define the signature though. These are the few functions
+that are required:
 
 #+begin_src c
   void editorSetStatusMessage(const char *fmt, ...);
