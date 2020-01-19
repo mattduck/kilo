@@ -1,29 +1,32 @@
-- [2020-01-17 Fri 10:12] bug: (modified) not appearing?
-- [2020-01-17 Fri 12:35] up to step 168.
-
 * Kilo
 
 This is my implementation of the Kilo text editor, written by following [[https://viewsourcecode.org/snaptoken/kilo/index.html][Build
 your own text editor]]. It's written as an org-mode file, as an exercise for me to
-learn a bit more about C, building terminal applications, and literate
-programming with org-mode.
+learn a bit more about writing terminal applications with C, and to see whether
+the literate programming approach with org-mode is useful.
 
-* Compile
+** Results
+
+Overall I think embedding the code in this file actually made it harder to keep
+the overall structure in my head as I went, because I was only operating on
+individuals parts at a time. Next time I will just write notes separate the code
+files.
+
+I've now renamed the org-mode version to ~kilo-org.c~. For future edits I'll work
+on ~kilo.c~ directly.
+
+* Compile with org-mode
 
 This just concatenates all the C snippets to ~kilo.c~, and then runs ~make~.
 
 #+begin_src emacs-lisp :results silent
-  (defun md/kilo-compile ()
-    (interactive)
-    (setq-local org-confirm-babel-evaluate nil)
-    (org-babel-tangle nil "kilo.c" "c")
-    (compile "make"))
-  (md/kilo-compile)
+  (interactive)
+  (setq-local org-confirm-babel-evaluate nil)
+  (org-babel-tangle nil "kilo-org.c" "c")
+  (compile "make")
 #+end_src
 
 * Code
-
-
 ** Feature test macros
 
 There are various macros that you can define that control what features are
@@ -31,13 +34,13 @@ available to the compiler. There is more info in the [[https://www.gnu.org/softw
 documentation]]. Some are added in step 59, to remove a warning about implicit
 declaration of ~getline()~.
 
-#+begin_src c
+#+begin_src c :results silent
 # define _DEFAULT_SOURCE
 # define _BSD_SOURCE
 # define _GNU_SOURCE
 #+end_src
 
-** Include
+** Includes
 
 #+begin_src c
   #include <ctype.h>
@@ -56,22 +59,21 @@ declaration of ~getline()~.
 
 ** Constants
 
-Some of these macros take a parameter, similar to functions. The main advantage
-of doing this is that the preprocessor replaces the template so there's no stack
-or function call needed. There are downsides too: if you have a lot of macros
-it can increase the binary size, and they're limited because they're not
-functions - you can't return a parameter, you can't do recursion, etc.
-
 #+begin_src c
   #define KILO_VERSION "0.0.1"
-  #define KILO_TAB_STOP 8
-  #define KILO_QUIT_TIMES 3
+  #define KILO_TAB_STOP 4
+  #define KILO_QUIT_TIMES 2
 #+end_src
 
-*** Control key
+Some of these macros (like ~CTRL_KEY~ below) take a parameter, similar to
+functions. The main advantage of doing this is that the preprocessor replaces
+the template so there's no stack or function call needed. There are downsides
+too: if you have a lot of macros it can increase the binary size, and they're
+limited because they're not functions - you can't return a parameter, you can't
+do recursion, etc.
 
-In ASCII, the control character strips bits 5 and 6 from whatever key you
-press. For example, ~h~ is 01101000 and ~C-h~ is 00001000
+In ASCII, the CTRL character strips bits 5 and 6 from whatever key you
+press. For example, ~h~ is 01101000, and ~C-h~ is 00001000. We define this below:
 
 #+begin_src c
   #define CTRL_KEY(k) ((k) & 0x1F)
@@ -110,6 +112,18 @@ press. For example, ~h~ is 01101000 and ~C-h~ is 00001000
 
 ** State
 
+The global editor state is stored in ~editorConfig~. This stores data like the
+cursor position, screen offset, size of the terminal, whether the buffer has
+been modified, the associated filename, etc. It also contains some setup and
+teardown data (like the properties of the user's terminal),
+
+~erow~ represents a single line of text. User input results in a lot of mutation
+of ~erow~ and ~editorConfig~.
+
+~editorSyntax~ OTOH just contains information associated with a particular
+filetype, and is not affected by user input. The buffer can be associated with a
+single ~editorSyntax~ struct.
+
 #+begin_src c
   struct editorSyntax {
     char *filetype;
@@ -122,36 +136,38 @@ press. For example, ~h~ is 01101000 and ~C-h~ is 00001000
   };
 
   typedef struct erow {
-    int idx;
-    int size;
-    int rsize; // size of contents to render
-    char *chars;
-    char *render;
-    unsigned char *hl;
-    int hl_open_comment;
+    int idx;  // which row in the buffer it represents
+    int size;  // the row length
+    char *chars;  // the characters in the line
+    int rsize; // the length of the "rendered" line, where eg. \t will expand to n spaces
+    char *render;  // the "rendered" characters in the line
+    unsigned char *hl;  // the highlight property of a character
+    int hl_open_comment;  // whether this line begins or is part of a multiline comment
   } erow;
 
   struct editorConfig {
     int cx, cy;  // cursor
     int rx;  // render index, as some chars are multi-width (eg. tabs)
-    int rowoff;
-    int coloff;
-    int screenrows;
-    int screencols;
-    int numrows;
-    erow *row;
-    int dirty;
-    char *filename;
-    char statusmsg[80];
-    time_t statusmsg_time;
-    struct editorSyntax *syntax;
-    struct termios orig_termios;
+    int rowoff; // file offset
+    int coloff; // same as above
+    int screenrows; // size of the terminal
+    int screencols; // size of the terminal
+    int numrows;  // size of the buffer
+    erow *row;  // current row
+    int dirty;  // is modified?
+    char *filename;  // name of file linked to the buffer
+    char statusmsg[80];  // status message displayed on at bottom of buffer
+    time_t statusmsg_time;  // how long ago status message was written
+    struct editorSyntax *syntax;  // the syntax rules that apply to the buffer
+    struct termios orig_termios;  // the terminal state taken at startup; used to restore on exit
   };
 
-  struct editorConfig E;
+  struct editorConfig E;  // the global state
 #+end_src
 
 ** Filetypes
+
+The tutorial specifies an entry for C:
 
 #+begin_src c
   char *C_HL_extensions[] = { ".c", ".h", ".cpp", NULL };
@@ -174,6 +190,21 @@ press. For example, ~h~ is 01101000 and ~C-h~ is 00001000
   #define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
 #+end_src
 
+** Exiting
+
+Most C library functions that fail set the global ~errno~. ~perror()~ looks at this
+and prints a descriptive message for it - for example, "inappropriate ioctl for
+device".
+
+#+begin_src c
+  void die(const char *s) {
+    write(STDOUT_FILENO, "\x1b[2J", 4);  // clear screen
+    write(STDOUT_FILENO, "\x1b[H", 3);  // reposition cursor
+    perror(s);
+    exit(1);
+  }
+#+end_src
+
 ** Prototypes
 
 C compiles in a single pass, so you can't always call functions that aren't
@@ -187,9 +218,10 @@ defined yet. We can define the signature though:
 
 ** Append buffer
 
-~abuf~ will store our screen updates for writing. This is preferable to calling
-~write()~ directly each time, because it reduces the number of updates, avoids
-screen flickering, etc.
+Rather than calling ~write()~ regularly to modify the terminal output, we instead
+buffer everything in ~abuf~, and only write to the terminal once our update is
+complete. This reduces the number of updates, can prevent screen flickering,
+etc.
 
 #+begin_src c
   struct abuf {
@@ -215,22 +247,10 @@ screen flickering, etc.
   }
 #+end_src
 
-** Exiting
-
-Most C library functions that fail set the global ~errno~. ~perror()~ looks at this
-and prints a descriptive message for it - for example, "inappropriate ioctl for
-device".
-
-#+begin_src c
-  void die(const char *s) {
-    write(STDOUT_FILENO, "\x1b[2J", 4);  // clear screen
-    write(STDOUT_FILENO, "\x1b[H", 3);  // reposition cursor
-    perror(s);
-    exit(1);
-  }
-#+end_src
-
 ** Terminal
+
+There are a few functions here that just get information from the
+terminal. ~editorReadKey()~ translates ANSI codes into an ~editorKey()~ enum:
 
 #+begin_src c
   int editorReadKey() {
@@ -286,24 +306,26 @@ device".
   }
 #+end_src
 
-If we read an escape character, immediately read two more bytes into ~seq~. If the
-reads timeout, then assume the user just pressed escape.
+Control characters are prefixed by ESC. If we read ESC, immediately read two
+more bytes into ~seq~. If the reads timeout, then assume the user just pressed
+escape.
 
-
-The "n" command below queries the terminal for status information. ~6~ asks for
-the cursor position.
+~getCursorPosition~ below doesn't really need to exist for me. It is only used in
+~getWindowSize~ if ~TIOCGWINSZ~ isn't supported by the terminal.
 
 #+begin_src c
   int getCursorPosition (int *rows, int *cols) {
     char buf[32];
     unsigned int i = 0;
+    // 6n (in the line below) asks for the cursor position. 6 is a function that
+    // queries for terminal status info.
     if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1;
     while (i < sizeof(buf) -1){
       if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
       if (buf[i] == 'R') break;
       i++;
     }
-    buf[i] = '\0';  // printf expects stings to end with a 0 byte
+    buf[i] = '\0';  // printf expects strings to end with a 0 byte
 
     if (buf[0] != '\x1b' || buf[1] != '[') return -1;
 
@@ -320,6 +342,8 @@ the cursor position.
   int getWindowSize(int *rows, int *cols) {
     struct winsize ws;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
+    // ~C~ is cursor forward, and ~B~ is cursor down. We assume that 999 is a large
+    // enough value to position to the bottom right.
       if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;
       return getCursorPosition(rows, cols);
     } else {
@@ -330,11 +354,8 @@ the cursor position.
   }
 #+end_src
 
-- TIOCGWINSZ tells the terminal to return the window size. We check for 0 in the
-  column value because "apparently" that's a possible outcome.
-
-- ~C~ is cursor forward, and ~B~ is cursor down. We assume that 999 is a large
-  enough value to position to the bottom right.
+TIOCGWINSZ tells the terminal to return the window size. We check for 0 in the
+column value because "apparently" that's a possible outcome.
 
 *** Raw mode
 
@@ -390,6 +411,16 @@ the cursor position.
   soon as there's any input to read. VTIME is the timeout value in 10ths of a
   second.
 ** Syntax highlighting
+
+This is one of the bigger features. ~editorUpdateSyntax~ operates on a single row,
+setting each column of the ~hl~ array according to that column's syntax
+property. When following the steps, we initially only supported syntax state
+within a single line. Afterwards the multi-line feature was added.
+
+This implementation could easily get unwieldy if you wanted to add support for
+more syntax features, because there's a lot of state to keep track of in the
+main loop.
+
 #+begin_src c
   int is_separator(int c) {
     return isspace(c) || c == '\0' || strchr(",.()+-/*=~%<>[];", c) != NULL;
@@ -532,6 +563,7 @@ the cursor position.
   }
 
   void editorSelectSyntaxHighlight() {
+    /*Sets E.syntax based on E.filename */
     E.syntax = NULL;
     if (E.filename == NULL) return;
     char *ext = strchr(E.filename, '.');
@@ -539,7 +571,7 @@ the cursor position.
       struct editorSyntax *s = &HLDB[j];
       unsigned int i = 0;
       while (s->filematch[i]){
-        int is_ext = (s->filematch[i][0] == ".");
+        int is_ext = (s->filematch[i][0] == '.');
         if ((is_ext && !strcmp(ext, s->filematch[i])) ||
             (!is_ext && strstr(E.filename, s->filematch[i]))) {
           E.syntax = s;
@@ -558,12 +590,12 @@ the cursor position.
 
 ** Row operations
 
-The "render" string here contains the displayed version of each character - it
-allows us to translate a tab or other control character into the value that
-actually gets displayed.
+These functions operate on rows - eg. to insert a row in the buffer, or insert a
+character into a row. They do /not/ operate on the cursor position or the file
+offset.
 
-Translation between Cx<->Rx is quite simple because there is only one character
-supported: tab.
+Translation between Cx<->Rx below is quite simple because there is only one character
+supported (tab). Having to hard-code every translation isn't ideal though.
 
 #+begin_src c
   int editorRowCxToRx(erow *row, int cx) {
@@ -589,6 +621,9 @@ supported: tab.
     }
     return cx;
   }
+#+end_src
+
+#+begin_src c
 
   void editorUpdateRow(erow *row) {
     int tabs = 0;
@@ -687,6 +722,9 @@ supported: tab.
 
 ** Editor operations
 
+These are more user-focused operations that can perform row operations but also
+managed the cursor at the same time. They do /not/ manage the file offset though.
+
 #+begin_src c
   void editorInsertChar(int c){
     if (E.cy == E.numrows) { // the cursor is on the tilde after the last line
@@ -750,7 +788,6 @@ supported: tab.
     return buf;
   }
 #+end_src
-
 
 #+begin_src c
   void editorOpen(char *filename) {
@@ -892,11 +929,10 @@ and moves the cursor to the row.
     }
   }
 #+end_src
-
 ** Output
 
-Here, ~rowoff~ refers to the top of the screen, and we have to add ~screenrows~ to
-get to the bottom:
+There are a few functions here that handle drawing the terminal output,
+scrolling,  refreshing the screen, drawing the status bar, etc.
 
 #+begin_src c
   void editorScroll() {
@@ -904,7 +940,6 @@ get to the bottom:
     if (E.cy < E.numrows) {
       E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
     }
-
     if (E.cy < E.rowoff) { // is the cursor above the visible window?
       E.rowoff = E.cy;
     }
@@ -991,14 +1026,14 @@ get to the bottom:
   }
 #+end_src
 
-- ~filerow~ above represents the offset row, whereas ~y~ represents the absolute
-  row.
+~filerow~ above represents the offset row, whereas ~y~ represents the absolute
+row.
 
 #+begin_src c
   void editorDrawStatusBar(struct abuf *ab) {
     abAppend(ab, "\x1b[7m", 4);
     char status[80], rstatus[80];
-    int len = snprintf(status, sizeof(status), "%.20s - %d lines",
+    int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
                        E.filename ? E.filename : "[No Name]", E.numrows,
                        E.dirty ? "(modified)" : "");
     int rlen = snprintf(rstatus, sizeof(rstatus), "%s | %d/%d",
@@ -1041,6 +1076,8 @@ get to the bottom:
 
     // Move the cursor
     char buf[32];
+    // The ~[H~ escape sequence moves the cursor to the position given by the
+    // coordinates. The +1 is to convert because the terminal uses 1-indexed values.
     snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, (E.rx - E.coloff) + 1);
     abAppend(&ab, buf, strlen(buf));
 
@@ -1049,14 +1086,6 @@ get to the bottom:
     abFree(&ab);
   }
 #+end_src
-
-- The 4 means we're writing 4 bytes. ~\x1b~ is 27, ie. the escape
-  character. Escape sequences use ESC+[ as their first two characters. ~J~ clears
-  the screen. The character before J is an argument. ~2J~ means clear the entire
-  screen. These are VT100 escape sequences, which are widely supported.
-
-- the ~[H~ escape sequence moves the cursor to the position given by the
-  coordinates. The +1 is to convert because the terminal uses 1-indexed values.
 
 Below, the ~...~ takes a varying number of arguments. Between ~va_start()~ and
 ~va_end()~ you can use ~va_arg()~ to get the next argument. ~va_start()~ needs to know
@@ -1076,6 +1105,11 @@ arguments.
 #+end_src
 
 ** Input
+
+These are the main user input functions. ~editorPrompt~ is similar to the main
+loop - it waits for user input and then runs a callback function on
+RET. ~editorProcessKeypress~ is basically a big case statement that checks the key
+enum and performs appropriate operations.
 
 #+begin_src c
   char *editorPrompt(char *prompt, void (*callback)(char *, int)) {
@@ -1115,7 +1149,6 @@ arguments.
       if (callback) callback(buf, c);
     }
   }
-
 
   void editorMoveCursor(int key) {
     erow *row = (E.cy >= E.numrows) ? NULL : &E.row[E.cy]; // get current row
@@ -1242,7 +1275,8 @@ arguments.
 #+end_src
 ** Main
 
-initEditor() will initialise all the fields in the E struct:
+The entry point. ~initEditor()~ initialises all the fields in the E struct. ~main()~
+handles arguments and enters the main loop.
 
 #+begin_src c
   void initEditor () {
@@ -1301,7 +1335,6 @@ termios flags, and it has to be reset by the ~reset~ trick.
 Step 15 disables various flags that nowadays are usually disabled by default
 (but it's still good practice to disable them to enable "raw mode").
 
-
 ** C-s and C-q
 
 ~C-s~ stops data from being transmitted to the terminal, and ~C-q~ resumes it. I
@@ -1340,8 +1373,13 @@ models.
 
 If you set the first constant in an enum (as we do in step 48), then the
 remaining constants are incremented automatically.
+
 ** Saving the file
 
 A safer way to write the file would be to write it to a temporary file, ensure
 it succeeds safely, and then rename it to the desired location. This is
 mentioned in step 106.
+** openemacs
+
+There's a [[https://github.com/practicalswift/openemacs/blob/master/openemacs.c][fork of the project]] that implements some emacs-like features (eg. the
+movement bindings).
