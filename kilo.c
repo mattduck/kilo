@@ -17,9 +17,14 @@
 
 #define KILO_VERSION "0.0.1"
 #define KILO_TAB_STOP 4
-#define KILO_QUIT_TIMES 2
 
 #define CTRL_KEY(k) ((k) & 0x1F)
+
+
+int isPrefix (char c) {
+  return c == CTRL_KEY('x');
+}
+
 
 enum editorKey {
                 BACKSPACE = 127,
@@ -533,6 +538,7 @@ void editorRowDelChar(erow *row, int at) {
 }
 
 void editorInsertChar(int c){
+  if (isPrefix(c)) return;  // Don't insert control chars
   if (E.cy == E.numrows) { // the cursor is on the tilde after the last line
     editorInsertRow(E.numrows, "", 0);
   }
@@ -904,6 +910,7 @@ void editorMoveCursor(int key) {
   erow *row = (E.cy >= E.numrows) ? NULL : &E.row[E.cy]; // get current row
 
   switch (key) {
+  case CTRL_KEY('b'):
   case ARROW_LEFT:
     if (E.cx != 0) {
       E.cx--;
@@ -913,6 +920,7 @@ void editorMoveCursor(int key) {
         E.cx = E.row[E.cy].size;
     }
     break;
+  case CTRL_KEY('f'):
   case ARROW_RIGHT:
     if (row && E.cx < row->size) { // limit horizontal scrolling by column width
       E.cx++;
@@ -922,11 +930,13 @@ void editorMoveCursor(int key) {
       E.cx = 0;
     }
     break;
+  case CTRL_KEY('p'):
   case ARROW_UP:
     if (E.cy != 0) {
       E.cy--;
     }
     break;
+  case CTRL_KEY('n'):
   case ARROW_DOWN:
     if (E.cy != E.numrows - 1) {  // Allow advancing past the screen, but not the file.
       E.cy++;
@@ -945,36 +955,34 @@ void editorMoveCursor(int key) {
 }
 
 void editorProcessKeypress() {
-  static int quit_times = KILO_QUIT_TIMES;
-
+  static int previous_key = -1;
   int c = editorReadKey();
   switch (c) {
   case '\r':
     editorInsertNewline();
     break;
-  case CTRL_KEY('q'):
-    if (E.dirty && quit_times > 0){
-      editorSetStatusMessage("Warning! File has unsaved changes. "
-                             "Press C-q %d more times to quit.", quit_times);
-      quit_times --;
-      return;
+  case CTRL_KEY('c'):
+    if (previous_key == CTRL_KEY('x')) {
+      write(STDOUT_FILENO, "\x1b[2J", 4);  // clear screen
+      write(STDOUT_FILENO, "\x1b[H", 3);  // reposition cursor
+      exit(0);
     }
-    write(STDOUT_FILENO, "\x1b[2J", 4);  // clear screen
-    write(STDOUT_FILENO, "\x1b[H", 3);  // reposition cursor
-    exit(0);
     break;
   case CTRL_KEY('s'):
-    editorSave();
+    if (previous_key == CTRL_KEY('x')) {
+      editorSave();
+      break;
+    }
+    editorFind();
     break;
+  case CTRL_KEY('a'):
   case HOME_KEY:
     E.cx = 0;
     break;
+  case CTRL_KEY('e'):
   case END_KEY:
     if (E.cy < E.numrows)
       E.cx = E.row[E.cy].size;  // move to end of the line
-    break;
-  case CTRL_KEY('f'):
-    editorFind();
     break;
   case BACKSPACE:
   case CTRL_KEY('h'): // legacy - C-h produces "8", which used to represent backspace
@@ -1000,6 +1008,10 @@ void editorProcessKeypress() {
         editorMoveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
     }
     break;
+  case CTRL_KEY('f'):
+  case CTRL_KEY('b'):
+  case CTRL_KEY('n'):
+  case CTRL_KEY('p'):
   case ARROW_UP:
   case ARROW_DOWN:
   case ARROW_LEFT:
@@ -1018,7 +1030,7 @@ void editorProcessKeypress() {
     break;
   }
 
-  quit_times = KILO_QUIT_TIMES;  // reset to 3
+  previous_key = c;
 }
 
 void initEditor () {
