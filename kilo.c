@@ -73,6 +73,11 @@ typedef struct erow {
   int hl_open_comment;  // whether this line begins or is part of a multiline comment
 } erow;
 
+enum editorMode {
+           MODE_NORMAL = 0,
+           MODE_INSERT = 1
+};
+
 struct editorConfig {
   int cx, cy;  // cursor
   int rx;  // render index, as some chars are multi-width (eg. tabs)
@@ -88,6 +93,7 @@ struct editorConfig {
   time_t statusmsg_time;  // how long ago status message was written
   struct editorSyntax *syntax;  // the syntax rules that apply to the buffer
   struct termios orig_termios;  // the terminal state taken at startup; used to restore on exit
+  int mode;
 };
 
 struct editorConfig E;  // the global state
@@ -808,8 +814,21 @@ void editorDrawRows(struct abuf *ab) {
 
 void editorDrawStatusBar(struct abuf *ab) {
   abAppend(ab, "\x1b[7m", 4);
-  char status[80], rstatus[80];
-  int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
+  char status[80], rstatus[80], statusmode[4];
+
+  switch (E.mode) {
+  case MODE_NORMAL:
+    strcpy(statusmode, "<N>");
+    break;
+  case MODE_INSERT:
+    strcpy(statusmode, "<I>");
+    break;
+  default:
+    strcpy(statusmode, "???");
+  }
+
+  int len = snprintf(status, sizeof(status), "%s | %.20s - %d lines %s",
+                     statusmode,
                      E.filename ? E.filename : "[No Name]", E.numrows,
                      E.dirty ? "(modified)" : "");
   int rlen = snprintf(rstatus, sizeof(rstatus), "%s | %d/%d",
@@ -910,6 +929,7 @@ void editorMoveCursor(int key) {
   erow *row = (E.cy >= E.numrows) ? NULL : &E.row[E.cy]; // get current row
 
   switch (key) {
+  case 'h':
   case CTRL_KEY('b'):
   case ARROW_LEFT:
     if (E.cx != 0) {
@@ -920,6 +940,7 @@ void editorMoveCursor(int key) {
         E.cx = E.row[E.cy].size;
     }
     break;
+  case 'l':
   case CTRL_KEY('f'):
   case ARROW_RIGHT:
     if (row && E.cx < row->size) { // limit horizontal scrolling by column width
@@ -930,12 +951,14 @@ void editorMoveCursor(int key) {
       E.cx = 0;
     }
     break;
+  case 'k':
   case CTRL_KEY('p'):
   case ARROW_UP:
     if (E.cy != 0) {
       E.cy--;
     }
     break;
+  case 'j':
   case CTRL_KEY('n'):
   case ARROW_DOWN:
     if (E.cy != E.numrows - 1) {  // Allow advancing past the screen, but not the file.
@@ -954,10 +977,35 @@ void editorMoveCursor(int key) {
 
 }
 
-void editorProcessKeypress() {
+
+void editorProcessKeypressNormalMode() {
+  int c = editorReadKey();
+  switch (c) {
+  case 'i':
+    E.mode = MODE_INSERT;
+    break;
+  case 'k':
+  case 'j':
+  case 'h':
+  case 'l':
+    editorMoveCursor(c);
+    break;
+  case 'w':
+    editorSave();
+    break;
+  case '/':
+    editorFind();
+    break;
+  }
+}
+
+void editorProcessKeypressInsertMode() {
   static int previous_key = -1;
   int c = editorReadKey();
   switch (c) {
+  case '\x1b':
+    E.mode = MODE_NORMAL;
+    break;
   case '\r':
     editorInsertNewline();
     break;
@@ -1022,7 +1070,6 @@ void editorProcessKeypress() {
   // C-l traditionally refreshes the screen. don't do anything as we refresh by
   // default after each keypress.
   case CTRL_KEY('l'):
-  case '\x1b':
     break;
 
   default:
@@ -1046,6 +1093,7 @@ void initEditor () {
   E.statusmsg[0] = '\0';
   E.statusmsg_time = 0;
   E.syntax = NULL;
+  E.mode = MODE_NORMAL;
   if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
   E.screenrows -= 2;  // For the status bar and message bar
 }
@@ -1062,7 +1110,15 @@ int main(int argc, char *argv[]) {
 
   while (1) {
     editorRefreshScreen();
-    editorProcessKeypress();
+
+    switch (E.mode) {
+    case MODE_NORMAL:
+      editorProcessKeypressNormalMode();
+      break;
+    case MODE_INSERT:
+      editorProcessKeypressInsertMode();
+      break;
+    }
   }
   return 0;
 }
