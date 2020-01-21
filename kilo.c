@@ -1125,7 +1125,7 @@ void editorMoveCursorWordForward() {
   }
 }
 
-// TODO: if a row is empty it doesn't pick up the previous row.
+// TODO: if a row is empty it doesn't skips the first word on the next row.
 coords get_coords_W() {
   coords co = {E.cy, E.cx};
   coords lookahead_co;
