@@ -1196,6 +1196,10 @@ void editorProcessKeypressNormalMode() {
         editorMoveCursor(ARROW_UP);
     }
     break;
+  case 'G':
+    E.cy = E.numrows - 1;
+    E.cx = E.row[E.cy].size;
+    break;
   }
 }
 
