@@ -17,9 +17,12 @@
 
 #define KILO_VERSION "0.0.1"
 #define KILO_TAB_STOP 4
+#define KILO_DEBUG_MODE 1
 
 #define CTRL_KEY(k) ((k) & 0x1F)
 
+
+/* */
 
 int isPrefix (char c) {
   return c == CTRL_KEY('x');
@@ -1136,7 +1139,6 @@ coords get_coords_W() {
     row = &E.row[co.y];
     lookahead_co = coords_incremented(co);
 
-    message("%d.%d, %d.%d", lookahead_co.y, lookahead_co.x, point_max().y, point_max().x);
     editorRefreshScreen();
     if (coords_gte(lookahead_co, point_max()))
       return point_max();
@@ -1329,6 +1331,7 @@ void editorProcessKeypressNormalMode() {
     E.mode = MODE_INSERT;
     break;
   case ':':
+  case ';':
     editorColon();
     break;
   case 'k':
