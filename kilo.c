@@ -124,7 +124,7 @@ void die(const char *s) {
   exit(1);
 }
 
-void editorSetStatusMessage(const char *fmt, ...);
+void message(const char *fmt, ...);
 void editorRefreshScreen();
 char *editorPrompt(char *prompt, void (*callback)(char *, int));
 
@@ -543,6 +543,16 @@ void editorRowDelChar(erow *row, int at) {
   E.dirty++;
 }
 
+void editorJoinLines() {
+  if (E.cy == E.numrows - 1)
+    return;
+  erow *row = &E.row[E.cy];
+  erow *rowBelow = &E.row[E.cy + 1];
+  editorRowAppendString(row, " ", 1);
+  editorRowAppendString(row, rowBelow->chars, rowBelow->size);
+  editorDelRow(E.cy + 1);
+}
+
 void editorInsertChar(int c){
   if (isPrefix(c)) return;  // Don't insert control chars
   if (E.cy == E.numrows) { // the cursor is on the tilde after the last line
@@ -628,7 +638,7 @@ void editorSave() {
   if (E.filename == NULL) {
     E.filename = editorPrompt("Save as: %s (ESC to cancel)", NULL);
     if (E.filename == NULL) {
-      editorSetStatusMessage("Save aborted");
+      message("Save aborted");
       return;
     }
     editorSelectSyntaxHighlight();
@@ -644,14 +654,14 @@ void editorSave() {
         close(fd);
         free(buf);
         E.dirty = 0;
-        editorSetStatusMessage("%d bytes written to disk", len);
+        message("%d bytes written to disk", len);
         return;
       }
     }
     close(fd);
   }
   free(buf);
-  editorSetStatusMessage("Can't save! I/O error: %s", strerror(errno));
+  message("Can't save! I/O error: %s", strerror(errno));
 }
 
 void editorFindCallback(char *query, int key) {
@@ -721,6 +731,27 @@ void editorFind(){
     E.cy = saved_cy;
     E.coloff = saved_coloff;
     E.rowoff = saved_rowoff;
+  }
+}
+
+
+void editorQuit() {
+  write(STDOUT_FILENO, "\x1b[2J", 4);  // clear screen
+  write(STDOUT_FILENO, "\x1b[H", 3);  // reposition cursor
+  exit(0);
+}
+
+
+void editorColon(){
+  char *query = editorPrompt(":%s", NULL);
+  if (query) {
+    if (strcmp(query, "q!") == 0) {
+      editorQuit();
+    } else if (strcmp(query, "wq") == 0) {
+      editorSave();
+      editorQuit();
+    }
+    free (query);
   }
 }
 
@@ -879,7 +910,7 @@ void editorRefreshScreen() {
   abFree(&ab);
 }
 
-void editorSetStatusMessage(const char *fmt, ...) {
+void message(const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   vsnprintf(E.statusmsg, sizeof(E.statusmsg), fmt, ap);
@@ -895,21 +926,21 @@ char *editorPrompt(char *prompt, void (*callback)(char *, int)) {
   buf[0] = '\0';
 
   while (1) {
-    editorSetStatusMessage(prompt, buf);
+    message(prompt, buf);
     editorRefreshScreen();
 
     int c = editorReadKey();
     if (c == DEL_KEY || c == CTRL_KEY('h') || c == BACKSPACE) {
       if (buflen !=0) buf[--buflen] = '\0';
     } else if (c == '\x1b') {
-      editorSetStatusMessage("");
+      message("");
       if (callback) callback(buf, c);
       free(buf);
       return NULL;
     } else if (c == '\r') {
       if (buflen != 0) {
         // clear status message, return the user input
-        editorSetStatusMessage("");
+        message("");
         if (callback) callback(buf, c);
         return buf;
       }
@@ -978,11 +1009,143 @@ void editorMoveCursor(int key) {
 }
 
 
+enum charType {
+               CHAR_ALPHANUM = 1,
+               CHAR_SYMBOL,
+               CHAR_SPACE,
+};
+
+
+int getCharType(char c){
+  if (isspace(c)) {
+    return CHAR_SPACE;
+  } else if (is_separator(c)) {
+    return CHAR_SYMBOL;
+  }
+  return CHAR_ALPHANUM;
+}
+
+
+/* Vim-like word movement. In vim it seems to move the cursor using any
+   transition from word/symbol/whitespace.*/
+void editorMoveCursorWordForward() {
+  erow *row = &E.row[E.cy];
+  int cursor = -1;
+  int previous_cursor = -1;
+  while (E.cy < E.numrows) {
+    if (E.cx >= row->size) {  // move down a row
+      if (E.cy == E.numrows - 1) { // if this is last row keep in bounds
+        E.cx = row->size;
+        return;
+      }
+      E.cy ++;
+      row = &E.row[E.cy];
+      E.cx = 0;
+    }
+    cursor = getCharType(row->chars[E.cx]);
+    if ((cursor != CHAR_SPACE) && (previous_cursor > 0) &&
+        ((previous_cursor != cursor) || E.cx == 0)) {
+      // The E.cx == 0 check above will mean that we're on a new word in a
+      // different row.
+      break;
+    }
+    E.cx ++;
+    previous_cursor = cursor;
+  }
+}
+
+/* Vim-like word movement.
+   If the cursor is at the start of a word, go to the start of the preceding
+   word. Otherwise, go to the start of _this_ word.
+
+   TODO: ensure this works with moving back in the file etc.
+   TODO: these could be rewritten to not mutate cx/cy, but instead to return the
+         cursor position for the start of the word.
+ */
+void editorMoveCursorWordBackward() {
+  erow *row = &E.row[E.cy];
+  erow *previous_row;
+  int cursor_type = -1;
+  int lookbehind_type = -1;
+  int num_type_changes = 0;
+  int was_on_first_letter = -1;
+  while (E.cy >=0) {
+    row = &E.row[E.cy];
+    cursor_type = getCharType(row->chars[E.cx]);
+    if (cursor_type != CHAR_SPACE) {
+
+      // lookup the lookbehind
+      if (E.cx >= 1) {
+        lookbehind_type = getCharType(row->chars[E.cx - 1]);
+      } else if (E.cx == 0) {
+        lookbehind_type = CHAR_SPACE;
+      }
+
+      // set was_on_first_letter
+      if (was_on_first_letter == -1 && lookbehind_type >= 0) {
+        if (cursor_type == lookbehind_type) {
+          was_on_first_letter = 0;
+        } else {
+          was_on_first_letter = 1;
+        }
+      }
+
+      // set num changes
+      if (cursor_type != lookbehind_type)
+        num_type_changes ++;
+
+      // check if should break. If we were on the first letter of an existing
+      // word/symbol then we want to move to the start of the NEXT word,
+      // otherwise this one.
+      if (was_on_first_letter == 0 && num_type_changes == 1)  {
+        break;
+      } else if (was_on_first_letter == 1 && num_type_changes == 2) {
+        break;
+      }
+    }
+
+    // Move cursor backwards
+    // if E.cx < 0, then set it to end of the above row.
+    E.cx --;
+    if (E.cx < 0) {
+      if (E.cy > 0) {
+        E.cy --;
+        previous_row = &E.row[E.cy];
+        E.cx = previous_row->size - 1;
+      } else {
+        E.cx = 0;
+      }
+    }
+  }
+}
+
+
 void editorProcessKeypressNormalMode() {
   int c = editorReadKey();
   switch (c) {
   case 'i':
     E.mode = MODE_INSERT;
+    break;
+  case 'a':
+    E.cx ++; // TODO: bounds check
+    E.mode = MODE_INSERT;
+    break;
+  case 'A':
+    if (E.cy < E.numrows)
+      E.cx = E.row[E.cy].size;  // move to end of the line
+    E.mode = MODE_INSERT;
+    break;
+  case 'I':
+    E.cx = 0;
+    E.mode = MODE_INSERT;
+    break;
+  case 'o':
+    E.cx = E.row[E.cy].size;  // move to end of the line
+    editorInsertNewline();
+    E.mode = MODE_INSERT;
+    break;
+  case ':':
+    editorColon();
     break;
   case 'k':
   case 'j':
@@ -991,10 +1154,31 @@ void editorProcessKeypressNormalMode() {
     editorMoveCursor(c);
     break;
   case 'w':
-    editorSave();
+    editorMoveCursorWordForward();
+    break;
+  case 'b':
+    editorMoveCursorWordBackward();
+    break;
+    break;
+  case 'J':
+    editorJoinLines();
+    break;
+  case 'x':
+    editorMoveCursor(ARROW_RIGHT);
+    editorDelChar();
+    break;
+  case '$':
+    if (E.cy < E.numrows)
+      E.cx = E.row[E.cy].size;  // move to end of the line
+    break;
+  case '^':
+    E.cx = 0;
     break;
   case '/':
     editorFind();
+    break;
+  case 'W':
+    editorSave();
     break;
   }
 }
@@ -1011,9 +1195,7 @@ void editorProcessKeypressInsertMode() {
     break;
   case CTRL_KEY('c'):
     if (previous_key == CTRL_KEY('x')) {
-      write(STDOUT_FILENO, "\x1b[2J", 4);  // clear screen
-      write(STDOUT_FILENO, "\x1b[H", 3);  // reposition cursor
-      exit(0);
+      editorQuit();
     }
     break;
   case CTRL_KEY('s'):
@@ -1106,7 +1288,7 @@ int main(int argc, char *argv[]) {
     editorOpen(argv[1]);
   }
 
-  editorSetStatusMessage("HELP: C-Q: quit | C-S: save | C-f: find");
+  message("HELP: C-Q: quit | C-S: save | C-f: find");
 
   while (1) {
     editorRefreshScreen();
