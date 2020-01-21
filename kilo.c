@@ -22,8 +22,6 @@
 #define CTRL_KEY(k) ((k) & 0x1F)
 
 
-/* */
-
 int isPrefix (char c) {
   return c == CTRL_KEY('x');
 }
@@ -119,12 +117,12 @@ struct editorSyntax HLDB[] = {
                               },
 };
 
-typedef struct coords {
+typedef struct point {
   int y, x;
-} coords;
+} point;
 
 
-coords coords_incremented(coords co) {
+point point_inc(point co) {
   erow *row = &E.row[co.y];
   co.x ++;
   if (co.x >= row->size) { // last column
@@ -138,7 +136,7 @@ coords coords_incremented(coords co) {
   return co;
 }
 
-coords coords_decremented(coords co) {
+point point_dec(point co) {
   co.x --;
   if (co.x < 0) {
     if (co.y == 0) {
@@ -152,18 +150,20 @@ coords coords_decremented(coords co) {
 }
 
 
-coords point_max() {
+/* return the last point in the buffer */
+point point_max() {
   erow *row = &E.row[E.numrows - 1];
-  coords co = {row->idx, row->size -1};
+  point co = {row->idx, row->size -1};
   return co;
 }
 
-coords point_min() {
-  coords co = {0, 0};
+/* return the first point in the buffer */
+point point_min() {
+  point co = {0, 0};
   return co;
 }
 
-int coords_gt(coords a, coords b){
+int point_gt(point a, point b){
   if (a.y > b.y)
     return 1;
   if ((a.y == b.y) && (a.x == b.x))
@@ -171,20 +171,20 @@ int coords_gt(coords a, coords b){
   return 0;
 }
 
-int coords_eq(coords a, coords b){
+int point_eq(point a, point b){
   return ((a.y == b.y) && (a.x == b.x));
 }
 
-int coords_lt(coords b, coords a){
-  return (!coords_gt(b, a) && !coords_eq(b, a));
+int point_lt(point b, point a){
+  return (!point_gt(b, a) && !point_eq(b, a));
 }
 
-int coords_gte(coords a, coords b){
-  return (coords_gt(a, b) || coords_eq(a, b));
+int point_gte(point a, point b){
+  return (point_gt(a, b) || point_eq(a, b));
 }
 
-int coords_lte(coords a, coords b){
-  return (coords_lt(a, b) || coords_eq(a, b));
+int point_lte(point a, point b){
+  return (point_lt(a, b) || point_eq(a, b));
 }
 
 #define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
@@ -1129,37 +1129,30 @@ void editorMoveCursorWordForward() {
 }
 
 // TODO: if a row is empty it doesn't skips the first word on the next row.
-coords get_coords_W() {
-  coords co = {E.cy, E.cx};
-  coords lookahead_co;
+point point_W() {
+  point co = {E.cy, E.cx};
+  point lookahead_co;
   erow *row = &E.row[co.y];
-  int has_transitioned_from_space = 0;
   int lookahead_is_space = -1;
   while (1) {
     row = &E.row[co.y];
-    lookahead_co = coords_incremented(co);
+    lookahead_co = point_inc(co);
 
-    editorRefreshScreen();
-    if (coords_gte(lookahead_co, point_max()))
+    if (point_gte(lookahead_co, point_max()))
       return point_max();
 
     lookahead_is_space = isspace(E.row[lookahead_co.y].chars[lookahead_co.x]);
     if ((co.x == row->size -1) && (lookahead_is_space == 0)
         && (!isspace(row->chars[co.x]))) {
-      has_transitioned_from_space = 1;
-    } else {
+      return lookahead_co;
+    } else {  // If transitioning out of a space, return the lookahead
       if (isspace(row->chars[co.x]) && lookahead_is_space == 0) {
-        has_transitioned_from_space = 1;
+        return lookahead_co;
       }
     }
 
-    // if started at a space: stop on first non-space
-    if (has_transitioned_from_space == 1) {
-      return lookahead_co;
-    }
-
     // Move cursor forwards and check bounds
-    co = coords_incremented(co);
+    co = point_inc(co);
   }
 }
 
@@ -1245,7 +1238,6 @@ void processKeyNormalMode_g() {
     message("%c is undefined", c);
   }
 }
-
 
 // TODO: fix cursor behaviour
 void processKeyNormalMode_d() {
@@ -1385,9 +1377,9 @@ void editorProcessKeypressNormalMode() {
     break;
   case 'W':
     {
-      coords co = get_coords_W();
-      E.cx = co.x;
-      E.cy = co.y;
+      point p = point_W();
+      E.cx = p.x;
+      E.cy = p.y;
     }
     break;
   case CTRL_KEY('f'):
