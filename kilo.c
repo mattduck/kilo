@@ -1247,6 +1247,22 @@ void processKeyNormalMode_g() {
 }
 
 
+// TODO: fix cursor behaviour
+void processKeyNormalMode_d() {
+  message("d...");
+  editorRefreshScreen();  // display the message
+  int c = editorReadKey(0);
+  switch (c) {
+  case 'd':
+    editorDelRow(E.cy);
+    message("");
+    break;
+  default:
+    message("%c is undefined", c);
+  }
+}
+
+
 void processKeyNormalMode_leader() {
   message("<leader>...");
   editorRefreshScreen();  // display the message
@@ -1305,6 +1321,9 @@ void editorProcessKeypressNormalMode() {
     break;
   case 'g':
     processKeyNormalMode_g();
+    break;
+  case 'd':
+    processKeyNormalMode_d();
     break;
   case CTRL_KEY('x'):
     processKey_Cx();
