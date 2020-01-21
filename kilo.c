@@ -150,12 +150,14 @@ void abFree(struct abuf *ab) {
   free(ab->b);
 }
 
-int editorReadKey() {
+/*If allow_timeout, then return -1 on read timeout. */
+int editorReadKey(int allow_timeout) {
   int nread;
   char c;
   // read() returns the number of bytes read
   while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
     if (nread == -1 && errno != EAGAIN) die("read");
+    if (allow_timeout == 1) return -1;
   }
 
   if (c == '\x1b') {
@@ -221,7 +223,7 @@ int getCursorPosition (int *rows, int *cols) {
   if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) return -1;
 
   printf("\r\n&buf[1]: '%s'\r\n", &buf[1]);
-  editorReadKey();
+  editorReadKey(0);
   return -1;
 }
 
@@ -256,7 +258,7 @@ void enableRawMode() {
   raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
 
   raw.c_cc[VMIN] = 0;
-  raw.c_cc[VTIME] = 1;  // 100ms
+  raw.c_cc[VTIME] = 3;  // 100ms
   if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
 }
 
@@ -929,7 +931,7 @@ char *editorPrompt(char *prompt, void (*callback)(char *, int)) {
     message(prompt, buf);
     editorRefreshScreen();
 
-    int c = editorReadKey();
+    int c = editorReadKey(0);
     if (c == DEL_KEY || c == CTRL_KEY('h') || c == BACKSPACE) {
       if (buflen !=0) buf[--buflen] = '\0';
     } else if (c == '\x1b') {
@@ -1122,13 +1124,51 @@ void editorMoveCursorWordBackward() {
 void processKeyNormalMode_g() {
   message("g...");
   editorRefreshScreen();  // display the message
-  int c = editorReadKey();
+  int c = editorReadKey(0);
   switch (c) {
   case 'g':
     {
       E.cx = 0;
       E.cy = 0;
     }
+    message("");
+    break;
+  default:
+    message("%c is undefined", c);
+  }
+}
+
+
+void processKeyInsertMode_j() {
+  int c = editorReadKey(1);
+  if (c == -1) {  // timed out;
+    editorInsertChar('j');
+  }
+  editorRefreshScreen();
+  switch (c) {
+  case 'k':
+    E.mode = MODE_NORMAL;
+    break;
+  case 'j':
+    editorSave();
+    E.mode = MODE_NORMAL;
+    break;
+  default:
+    message("%c is undefined", c);
+  }
+}
+
+
+void processKey_Cx() {
+  message("C-x...");
+  editorRefreshScreen();  // display the message
+  int c = editorReadKey(0);
+  switch (c) {
+  case CTRL_KEY('c'):
+    editorQuit();
+    break;
+  case CTRL_KEY('s'):
+    editorSave();
     break;
   default:
     message("%c is undefined", c);
@@ -1136,10 +1176,13 @@ void processKeyNormalMode_g() {
 }
 
 void editorProcessKeypressNormalMode() {
-  int c = editorReadKey();
+  int c = editorReadKey(0);
   switch (c) {
   case 'g':
     processKeyNormalMode_g();
+    break;
+  case CTRL_KEY('x'):
+    processKey_Cx();
     break;
   case 'i':
     E.mode = MODE_INSERT;
@@ -1225,25 +1268,21 @@ void editorProcessKeypressNormalMode() {
 }
 
 void editorProcessKeypressInsertMode() {
-  static int previous_key = -1;
-  int c = editorReadKey();
+  int c = editorReadKey(0);
   switch (c) {
   case '\x1b':
     E.mode = MODE_NORMAL;
     break;
+  case 'j':
+    processKeyInsertMode_j();
+    break;
   case '\r':
     editorInsertNewline();
     break;
-  case CTRL_KEY('c'):
-    if (previous_key == CTRL_KEY('x')) {
-      editorQuit();
-    }
+  case CTRL_KEY('x'):
+    processKey_Cx();
     break;
   case CTRL_KEY('s'):
-    if (previous_key == CTRL_KEY('x')) {
-      editorSave();
-      break;
-    }
     editorFind();
     break;
   case CTRL_KEY('a'):
@@ -1300,7 +1339,6 @@ void editorProcessKeypressInsertMode() {
     break;
   }
 
-  previous_key = c;
 }
 
 void initEditor () {
