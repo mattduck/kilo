@@ -116,6 +116,74 @@ struct editorSyntax HLDB[] = {
                               },
 };
 
+typedef struct coords {
+  int y, x;
+} coords;
+
+
+coords coords_incremented(coords co) {
+  erow *row = &E.row[co.y];
+  co.x ++;
+  if (co.x >= row->size) { // last column
+    if (co.y == E.numrows - 1) {  // last row in file
+      co.x = row->size;
+      return co;
+    }
+    co.y ++;
+    co.x = 0;
+  }
+  return co;
+}
+
+coords coords_decremented(coords co) {
+  co.x --;
+  if (co.x < 0) {
+    if (co.y == 0) {
+      co.x = 0;
+      return co;
+    }
+    co.y --;
+    co.x = E.row[co.y].size;
+  }
+  return co;
+}
+
+
+coords point_max() {
+  erow *row = &E.row[E.numrows - 1];
+  coords co = {row->idx, row->size -1};
+  return co;
+}
+
+coords point_min() {
+  coords co = {0, 0};
+  return co;
+}
+
+int coords_gt(coords a, coords b){
+  if (a.y > b.y)
+    return 1;
+  if ((a.y == b.y) && (a.x == b.x))
+    return 1;
+  return 0;
+}
+
+int coords_eq(coords a, coords b){
+  return ((a.y == b.y) && (a.x == b.x));
+}
+
+int coords_lt(coords b, coords a){
+  return (!coords_gt(b, a) && !coords_eq(b, a));
+}
+
+int coords_gte(coords a, coords b){
+  return (coords_gt(a, b) || coords_eq(a, b));
+}
+
+int coords_lte(coords a, coords b){
+  return (coords_lt(a, b) || coords_eq(a, b));
+}
+
 #define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
 
 void die(const char *s) {
@@ -1057,6 +1125,43 @@ void editorMoveCursorWordForward() {
   }
 }
 
+// TODO: if a row is empty it doesn't pick up the previous row.
+coords get_coords_W() {
+  coords co = {E.cy, E.cx};
+  coords lookahead_co;
+  erow *row = &E.row[co.y];
+  int has_transitioned_from_space = 0;
+  int lookahead_is_space = -1;
+  while (1) {
+    row = &E.row[co.y];
+    lookahead_co = coords_incremented(co);
+
+    message("%d.%d, %d.%d", lookahead_co.y, lookahead_co.x, point_max().y, point_max().x);
+    editorRefreshScreen();
+    if (coords_gte(lookahead_co, point_max()))
+      return point_max();
+
+    lookahead_is_space = isspace(E.row[lookahead_co.y].chars[lookahead_co.x]);
+    if ((co.x == row->size -1) && (lookahead_is_space == 0)
+        && (!isspace(row->chars[co.x]))) {
+      has_transitioned_from_space = 1;
+    } else {
+      if (isspace(row->chars[co.x]) && lookahead_is_space == 0) {
+        has_transitioned_from_space = 1;
+      }
+    }
+
+    // if started at a space: stop on first non-space
+    if (has_transitioned_from_space == 1) {
+      return lookahead_co;
+    }
+
+    // Move cursor forwards and check bounds
+    co = coords_incremented(co);
+  }
+}
+
+
 /* Vim-like word movement.
    If the cursor is at the start of a word, go to the start of the preceding
    word. Otherwise, go to the start of _this_ word.
@@ -1257,7 +1362,11 @@ void editorProcessKeypressNormalMode() {
     editorFind();
     break;
   case 'W':
-    editorSave();
+    {
+      coords co = get_coords_W();
+      E.cx = co.x;
+      E.cy = co.y;
+    }
     break;
   case CTRL_KEY('f'):
     {
@@ -1376,6 +1485,7 @@ void initEditor () {
   if (getWindowSize(&E.screenrows, &E.screencols) == -1) die("getWindowSize");
   E.screenrows -= 2;  // For the status bar and message bar
 }
+
 
 int main(int argc, char *argv[]) {
   enableRawMode();
