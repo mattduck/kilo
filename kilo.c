@@ -27,6 +27,7 @@ int isPrefix (char c) {
 
 
 enum editorKey {
+                SPACE = 32,
                 BACKSPACE = 127,
                 ARROW_LEFT = 1000,
                 ARROW_RIGHT,
@@ -1139,6 +1140,20 @@ void processKeyNormalMode_g() {
 }
 
 
+void processKeyNormalMode_leader() {
+  message("<leader>...");
+  editorRefreshScreen();  // display the message
+  int c = editorReadKey(0);
+  switch (c) {
+  case 'w':
+    editorSave();
+    break;
+  default:
+    message("%c is undefined", c);
+  }
+}
+
+
 void processKeyInsertMode_j() {
   int c = editorReadKey(1);
   if (c == -1) {  // timed out;
@@ -1178,6 +1193,9 @@ void processKey_Cx() {
 void editorProcessKeypressNormalMode() {
   int c = editorReadKey(0);
   switch (c) {
+  case SPACE:
+    processKeyNormalMode_leader();
+    break;
   case 'g':
     processKeyNormalMode_g();
     break;
