@@ -1119,9 +1119,28 @@ void editorMoveCursorWordBackward() {
 }
 
 
+void processKeyNormalMode_g() {
+  message("g...");
+  editorRefreshScreen();  // display the message
+  int c = editorReadKey();
+  switch (c) {
+  case 'g':
+    {
+      E.cx = 0;
+      E.cy = 0;
+    }
+    break;
+  default:
+    message("%c is undefined", c);
+  }
+}
+
 void editorProcessKeypressNormalMode() {
   int c = editorReadKey();
   switch (c) {
+  case 'g':
+    processKeyNormalMode_g();
+    break;
   case 'i':
     E.mode = MODE_INSERT;
     break;
