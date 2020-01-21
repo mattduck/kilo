@@ -1058,7 +1058,6 @@ void editorMoveCursorWordForward() {
    If the cursor is at the start of a word, go to the start of the preceding
    word. Otherwise, go to the start of _this_ word.
 
-   TODO: ensure this works with moving back in the file etc.
    TODO: these could be rewritten to not mutate cx/cy, but instead to return the
          cursor position for the start of the word.
  */
@@ -1287,8 +1286,6 @@ int main(int argc, char *argv[]) {
   if (argc >= 2) {
     editorOpen(argv[1]);
   }
-
-  message("HELP: C-Q: quit | C-S: save | C-f: find");
 
   while (1) {
     editorRefreshScreen();
