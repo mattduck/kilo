@@ -1179,6 +1179,23 @@ void editorProcessKeypressNormalMode() {
   case 'W':
     editorSave();
     break;
+  case CTRL_KEY('f'):
+    {
+      E.cy = E.rowoff + E.screenrows - 1;
+      if (E.cy > E.numrows) E.cy = E.numrows; // cap to end of file
+      int times = E.screenrows;
+      while (times --)
+        editorMoveCursor(ARROW_DOWN);
+    }
+    break;
+  case CTRL_KEY('b'):
+    {
+      E.cy = E.rowoff;
+      int times = E.screenrows;
+      while (times--)
+        editorMoveCursor(ARROW_UP);
+    }
+    break;
   }
 }
 
