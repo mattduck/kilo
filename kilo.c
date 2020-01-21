@@ -884,7 +884,7 @@ void editorDrawMessageBar(struct abuf *ab) {
   abAppend(ab, "\x1b[K", 3);
   int msglen = strlen(E.statusmsg);
   if (msglen > E.screencols) msglen = E.screencols; // bounds
-  if (msglen && time(NULL) - E.statusmsg_time < 5)
+  if (msglen && time(NULL) - E.statusmsg_time < 1)
     abAppend(ab, E.statusmsg, msglen);
 }
 
@@ -1200,6 +1200,8 @@ void editorProcessKeypressNormalMode() {
     E.cy = E.numrows - 1;
     E.cx = E.row[E.cy].size;
     break;
+  default:
+    message("%c is undefined", c);
   }
 }
 
