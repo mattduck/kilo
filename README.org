@@ -3,7 +3,7 @@
 This is my implementation of the Kilo text editor, written by following [[https://viewsourcecode.org/snaptoken/kilo/index.html][Build
 your own text editor]].
 
-It's was initially written as an org-mode file, as an exercise for me to learn a
+It was initially written as an org-mode file, as an exercise for me to learn a
 bit more about writing terminal applications with C, and to see whether the
 literate programming approach with org-mode is useful.
 
