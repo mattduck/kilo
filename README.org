@@ -1,11 +1,11 @@
 * Kilo
 
 This is my implementation of the Kilo text editor, written by following [[https://viewsourcecode.org/snaptoken/kilo/index.html][Build
-your own text editor]]. It's written as an org-mode file, as an exercise for me to
-learn a bit more about writing terminal applications with C, and to see whether
-the literate programming approach with org-mode is useful.
+your own text editor]].
 
-** Results
+It's was initially written as an org-mode file, as an exercise for me to learn a
+bit more about writing terminal applications with C, and to see whether the
+literate programming approach with org-mode is useful.
 
 Overall I think embedding the code in this file actually made it harder to keep
 the overall structure in my head as I went, because I was only operating on
@@ -13,6 +13,19 @@ individuals parts at a time. Next time I will just write notes separately.
 
 I've now renamed the org-mode version to ~kilo-org.c~. For future edits I'll work
 on ~kilo.c~ directly.
+
+* New features
+
+I've extended ~kilo.c~ with a few things that I'm used to from vim/emacs:
+
+- Splitting user input into ~normal~ and ~insert~ modes.
+- Word-based cursor movement that is normally found with ~w/W/b/B~
+- A new prompt to simulate ~:wq~ and ~:q!~.
+- Standard cursor movement with ~hjkl~, ~^/$~, ~C-f/C-b~, ~gg~ and ~G~.
+- Using ~dd~ to remove lines, and ~J~ to join lines.
+- Adding the ~jj~ and ~jk~ bindings that I use in ~insert~ mode to exit to ~normal~ mode
+  (which means waiting for a follow-up key to ~j~, and inserting it into the row
+  if it doesn't come after a set timeout).
 
 * Compile with org-mode
 
