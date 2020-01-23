@@ -305,36 +305,10 @@ int editorReadKey(int allow_timeout) {
   }
 }
 
-int getCursorPosition (int *rows, int *cols) {
-  char buf[32];
-  unsigned int i = 0;
-  // 6n (in the line below) asks for the cursor position. 6 is a function that
-  // queries for terminal status info.
-  if (write(STDOUT_FILENO, TERM_QUERY_CURSOR_POSITION, 4) != 4) return -1;
-  while (i < sizeof(buf) -1){
-    if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
-    if (buf[i] == 'R') break;
-    i++;
-  }
-  buf[i] = '\0';  // printf expects strings to end with a 0 byte
-
-  if (buf[0] != '\x1b' || buf[1] != '[') return -1;
-
-  // sscanf will parse out two integers ("%d;%d") and put them into rows/cols.
-  if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) return -1;
-
-  printf("\r\n&buf[1]: '%s'\r\n", &buf[1]);
-  editorReadKey(0);
-  return -1;
-}
-
 int getWindowSize(int *rows, int *cols) {
   struct winsize ws;
   if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
-  // ~C~ is cursor forward, and ~B~ is cursor down. We assume that 999 is a large
-  // enough value to position to the bottom right.
-    if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;
-    return getCursorPosition(rows, cols);
+    return -1; // probably TIOCGWINSZ not supported
   } else {
     *cols = ws.ws_col;
     *rows = ws.ws_row;
