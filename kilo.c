@@ -22,23 +22,34 @@
 #define CTRL_KEY(k) ((k) & 0x1F)
 
 // terminal styles
-#define STYLE_BLACK "\x1b[30m";
-#define STYLE_RED "\x1b[31m";
-#define STYLE_GREEN "\x1b[32m";
-#define STYLE_YELLOW "\x1b[33m";
-#define STYLE_BLUE "\x1b[34m";
-#define STYLE_MAGENTA "\x1b[35m";
-#define STYLE_CYAN "\x1b[36m";
-#define STYLE_WHITE "\x1b[37m";
-#define STYLE_BLACK_BRIGHT "\x1b[90m";
-#define STYLE_RED_BRIGHT "\x1b[91m";
-#define STYLE_GREEN_BRIGHT "\x1b[92m";
-#define STYLE_YELLOW_BRIGHT "\x1b[93m";
-#define STYLE_BLUE_BRIGHT "\x1b[94m";
-#define STYLE_MAGENTA_BRIGHT "\x1b[95m";
-#define STYLE_CYAN_BRIGHT "\x1b[96m";
-#define STYLE_WHITE_BRIGHT "\x1b[97m";
+const char* TERM_BLACK = "\x1b[30m";
+const char* TERM_RED = "\x1b[31m";
+const char* TERM_GREEN = "\x1b[32m";
+const char* TERM_YELLOW = "\x1b[33m";
+const char* TERM_BLUE = "\x1b[34m";
+const char* TERM_MAGENTA = "\x1b[35m";
+const char* TERM_CYAN = "\x1b[36m";
+const char* TERM_WHITE = "\x1b[37m";
+const char* TERM_BLACK_BRIGHT = "\x1b[90m";
+const char* TERM_RED_BRIGHT = "\x1b[91m";
+const char* TERM_GREEN_BRIGHT = "\x1b[92m";
+const char* TERM_YELLOW_BRIGHT = "\x1b[93m";
+const char* TERM_BLUE_BRIGHT = "\x1b[94m";
+const char* TERM_MAGENTA_BRIGHT = "\x1b[95m";
+const char* TERM_CYAN_BRIGHT = "\x1b[96m";
+const char* TERM_WHITE_BRIGHT = "\x1b[97m";
+const char* TERM_RESET = "\x1b[m";
+const char* TERM_RESET_FOREGROUND = "\x1b[39m";
+const char* TERM_INVERT = "\x1b[7m";
 
+// terminal control sequences
+const char* TERM_CLEAR_SCREEN = "\x1b[2J";
+const char* TERM_CLEAR_ROW = "\x1b[K";
+const char* TERM_HIDE_CURSOR = "\x1b[?25L";
+const char* TERM_SHOW_CURSOR = "\x1b[?25h";
+const char* TERM_MOVE_CURSOR_DEFAULT = "\x1b[H"; // position at beginning of screen
+const char* TERM_MOVE_CURSOR = "\x1b[%d;%dH"; // takes x/y positions
+const char* TERM_QUERY_CURSOR_POSITION = "\x1b[6n";
 
 int isPrefix (char c) {
   return c == CTRL_KEY('x');
@@ -299,7 +310,7 @@ int getCursorPosition (int *rows, int *cols) {
   unsigned int i = 0;
   // 6n (in the line below) asks for the cursor position. 6 is a function that
   // queries for terminal status info.
-  if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1;
+  if (write(STDOUT_FILENO, TERM_QUERY_CURSOR_POSITION, 4) != 4) return -1;
   while (i < sizeof(buf) -1){
     if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
     if (buf[i] == 'R') break;
@@ -481,16 +492,16 @@ void editorUpdateSyntax(erow *row) {
 
 
 
-char* editorSyntaxToColor(int hl) {
+const char* editorSyntaxToColor(int hl) {
   switch (hl) {
   case HL_COMMENT:
-  case HL_MLCOMMENT: return STYLE_BLACK_BRIGHT;
-  case HL_KEYWORD1: return STYLE_RED_BRIGHT;
-  case HL_KEYWORD2: return STYLE_MAGENTA;
-  case HL_STRING: return STYLE_CYAN;
-  case HL_NUMBER: return STYLE_GREEN_BRIGHT;
-  case HL_MATCH: return STYLE_RED;
-  default: return STYLE_WHITE;
+  case HL_MLCOMMENT: return TERM_BLACK_BRIGHT;
+  case HL_KEYWORD1: return TERM_RED_BRIGHT;
+  case HL_KEYWORD2: return TERM_MAGENTA;
+  case HL_STRING: return TERM_CYAN;
+  case HL_NUMBER: return TERM_GREEN_BRIGHT;
+  case HL_MATCH: return TERM_RED;
+  default: return TERM_WHITE;
   }
 }
 
@@ -830,8 +841,8 @@ void editorFind(){
 
 
 void editorQuit() {
-  write(STDOUT_FILENO, "\x1b[2J", 4);  // clear screen
-  write(STDOUT_FILENO, "\x1b[H", 3);  // reposition cursor
+  write(STDOUT_FILENO, TERM_CLEAR_SCREEN, 4);  // clear screen
+  write(STDOUT_FILENO, TERM_MOVE_CURSOR_DEFAULT, 3);  // reposition cursor
   exit(0);
 }
 
@@ -898,14 +909,14 @@ void editorDrawRows(struct abuf *ab) {
       char *c = &E.row[filerow].render[E.coloff];
       unsigned char *hl = &E.row[filerow].hl[E.coloff];
       int j;
-      char* current_color = NULL; // keep track of colour to keep number of resets down
+      const char* current_color = NULL; // keep track of colour to keep number of resets down
       for (j=0; j<len; j++){
         // control characters
         if (iscntrl(c[j])) {
           char sym = (c[j] <= 26) ? '@' + c[j] : '?';
-          abAppend(ab, "\x1b[7m", 4); // invert colours
+          abAppend(ab, TERM_INVERT, 4); // invert colours
           abAppend(ab, &sym, 1);
-          abAppend(ab, "\x1b[m", 3);  // reset
+          abAppend(ab, TERM_RESET, 3);  // reset
           if (current_color != NULL) {
             char buf[16];
             int clen = snprintf(buf, sizeof(buf), current_color);
@@ -914,12 +925,12 @@ void editorDrawRows(struct abuf *ab) {
 
         } else if (hl[j] == HL_NORMAL) {
           if (current_color != NULL) {
-            abAppend(ab, "\x1b[39m", 5);
+            abAppend(ab, TERM_RESET_FOREGROUND, 5);
             current_color = NULL;
           }
           abAppend(ab, &c[j], 1);
         } else {
-          char* color = editorSyntaxToColor(hl[j]);
+          const char* color = editorSyntaxToColor(hl[j]);
           if (color != current_color) {
             current_color = color;
             char buf[16];
@@ -929,16 +940,16 @@ void editorDrawRows(struct abuf *ab) {
           abAppend(ab, &c[j], 1);
         }
       }
-      abAppend(ab, "\x1b[39m", 5); // reset at end of line
+      abAppend(ab, TERM_RESET_FOREGROUND, 5); // reset at end of line
     }
-    abAppend(ab, "\x1b[K", 3);  // clear the rest of the row before drawing
+    abAppend(ab, TERM_CLEAR_ROW, 3);  // clear the rest of the row before drawing
     abAppend(ab, "\r\n", 2);  // this means there's always an empty row at the
                               // bottom of the screen
   }
 }
 
 void editorDrawStatusBar(struct abuf *ab) {
-  abAppend(ab, "\x1b[7m", 4);
+  abAppend(ab, TERM_INVERT, 4);
   char status[80], rstatus[80], statusmode[4];
 
   switch (E.mode) {
@@ -970,12 +981,12 @@ void editorDrawStatusBar(struct abuf *ab) {
       len++;
     }
   }
-  abAppend(ab, "\x1b[m", 3);
+  abAppend(ab, TERM_RESET, 3);
   abAppend(ab, "\r\n", 2);
 }
 
 void editorDrawMessageBar(struct abuf *ab) {
-  abAppend(ab, "\x1b[K", 3);
+  abAppend(ab, TERM_CLEAR_ROW, 3);
   int msglen = strlen(E.statusmsg);
   if (msglen > E.screencols) msglen = E.screencols; // bounds
   if (msglen && time(NULL) - E.statusmsg_time < 1)
@@ -986,8 +997,8 @@ void editorRefreshScreen() {
   editorScroll();
 
   struct abuf ab = ABUF_INIT;
-  abAppend(&ab, "\x1b[?25l", 6);  // hide cursor
-  abAppend(&ab, "\x1b[H", 3);  // reposition cursor
+  abAppend(&ab, TERM_HIDE_CURSOR, 6);  // hide cursor
+  abAppend(&ab, TERM_MOVE_CURSOR_DEFAULT, 3);  // reposition cursor
   editorDrawRows(&ab);
   editorDrawStatusBar(&ab);
   editorDrawMessageBar(&ab);
@@ -996,10 +1007,10 @@ void editorRefreshScreen() {
   char buf[32];
   // The ~[H~ escape sequence moves the cursor to the position given by the
   // coordinates. The +1 is to convert because the terminal uses 1-indexed values.
-  snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, (E.rx - E.coloff) + 1);
+  snprintf(buf, sizeof(buf), TERM_MOVE_CURSOR, (E.cy - E.rowoff) + 1, (E.rx - E.coloff) + 1);
   abAppend(&ab, buf, strlen(buf));
 
-  abAppend(&ab, "\x1b[?25h", 6);  // show cursor
+  abAppend(&ab, TERM_SHOW_CURSOR, 6);  // show cursor
   write(STDOUT_FILENO, ab.b, ab.len);
   abFree(&ab);
 }
