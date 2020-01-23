@@ -809,26 +809,34 @@ void editorDrawRows(struct abuf *ab) {
 }
 
 void editorDrawStatusBar(struct abuf *ab) {
+  abAppend(ab, TERM_WHITE, 4);
   abAppend(ab, TERM_INVERT, 4);
-  char status[80], rstatus[80], statusmode[4];
+  char status[80], rstatus[80], statusmode[4], statuscolor[5];
 
   switch (E.mode) {
   case MODE_NORMAL:
     strcpy(statusmode, "<N>");
+    strcpy(statuscolor, TERM_WHITE);
     break;
   case MODE_INSERT:
     strcpy(statusmode, "<I>");
+    strcpy(statuscolor, TERM_YELLOW);
     break;
   default:
     strcpy(statusmode, "???");
+    strcpy(statuscolor, TERM_RED);
   }
 
-  int len = snprintf(status, sizeof(status), "%s | %.20s - %d lines %s",
+  int len = snprintf(status, sizeof(status), "%s%04d:%02d  %s  %s %s  %s %s%s",
+                     statuscolor,
+                     E.cy + 1, E.cx + 1,
                      statusmode,
-                     E.filename ? E.filename : "[No Name]", E.numrows,
-                     E.dirty ? "(modified)" : "");
-  int rlen = snprintf(rstatus, sizeof(rstatus), "%s | %d/%d",
-                      E.syntax ? E.syntax->filetype : "no ft", E.cy + 1, E.numrows);
+                     TERM_WHITE_BRIGHT,
+                     E.syntax ? E.syntax->filetype : "Fundamental",
+                     TERM_WHITE,
+                     E.filename ? E.filename : "[No file]",
+                     E.dirty ? " + " : "");
+  int rlen = snprintf(rstatus, sizeof(rstatus), " ");
   if (len > E.screencols) len = E.screencols; // bounds
   abAppend(ab, status, len);
   while (len < E.screencols) {
@@ -1296,6 +1304,8 @@ void editorProcessKeypressInsertMode() {
       E.cx = E.row[E.cy].size;  // move to end of the line
     break;
   case BACKSPACE:
+    editorDelChar();
+    break;
   case CTRL_KEY('f'):
   case CTRL_KEY('b'):
   case CTRL_KEY('n'):
