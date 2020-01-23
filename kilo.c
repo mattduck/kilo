@@ -1,6 +1,6 @@
-# define _DEFAULT_SOURCE
-# define _BSD_SOURCE
-# define _GNU_SOURCE
+#define _DEFAULT_SOURCE
+#define _BSD_SOURCE
+#define _GNU_SOURCE
 
 #include <ctype.h>
 #include <errno.h>
@@ -20,6 +20,24 @@
 #define KILO_DEBUG_MODE 1
 
 #define CTRL_KEY(k) ((k) & 0x1F)
+
+// terminal styles
+#define STYLE_BLACK "\x1b[30m";
+#define STYLE_RED "\x1b[31m";
+#define STYLE_GREEN "\x1b[32m";
+#define STYLE_YELLOW "\x1b[33m";
+#define STYLE_BLUE "\x1b[34m";
+#define STYLE_MAGENTA "\x1b[35m";
+#define STYLE_CYAN "\x1b[36m";
+#define STYLE_WHITE "\x1b[37m";
+#define STYLE_BLACK_BRIGHT "\x1b[90m";
+#define STYLE_RED_BRIGHT "\x1b[91m";
+#define STYLE_GREEN_BRIGHT "\x1b[92m";
+#define STYLE_YELLOW_BRIGHT "\x1b[93m";
+#define STYLE_BLUE_BRIGHT "\x1b[94m";
+#define STYLE_MAGENTA_BRIGHT "\x1b[95m";
+#define STYLE_CYAN_BRIGHT "\x1b[96m";
+#define STYLE_WHITE_BRIGHT "\x1b[97m";
 
 
 int isPrefix (char c) {
@@ -103,7 +121,7 @@ struct editorConfig E;  // the global state
 char *C_HL_extensions[] = { ".c", ".h", ".cpp", NULL };
 char *C_HL_keywords[] = {
   "switch", "if", "while", "for", "break", "continue", "return", "else",
-  "struct", "union", "typedef", "static", "enum", "class", "case",
+  "struct", "union", "typedef", "static", "enum", "class", "case", "#define", "#include",
   "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
   "void|", NULL
 };
@@ -461,16 +479,18 @@ void editorUpdateSyntax(erow *row) {
     editorUpdateSyntax(&E.row[row->idx + 1]);
 }
 
-int editorSyntaxToColor(int hl) {
+
+
+char* editorSyntaxToColor(int hl) {
   switch (hl) {
   case HL_COMMENT:
-  case HL_MLCOMMENT: return 36;
-  case HL_KEYWORD1: return 33;
-  case HL_KEYWORD2: return 32;
-  case HL_STRING: return 35;
-  case HL_NUMBER: return 31;
-  case HL_MATCH: return 34;
-  default: return 37;
+  case HL_MLCOMMENT: return STYLE_BLACK_BRIGHT;
+  case HL_KEYWORD1: return STYLE_RED_BRIGHT;
+  case HL_KEYWORD2: return STYLE_MAGENTA;
+  case HL_STRING: return STYLE_CYAN;
+  case HL_NUMBER: return STYLE_GREEN_BRIGHT;
+  case HL_MATCH: return STYLE_RED;
+  default: return STYLE_WHITE;
   }
 }
 
@@ -878,7 +898,7 @@ void editorDrawRows(struct abuf *ab) {
       char *c = &E.row[filerow].render[E.coloff];
       unsigned char *hl = &E.row[filerow].hl[E.coloff];
       int j;
-      int current_color = -1; // keep track of colour to keep number of resets down
+      char* current_color = NULL; // keep track of colour to keep number of resets down
       for (j=0; j<len; j++){
         // control characters
         if (iscntrl(c[j])) {
@@ -886,24 +906,24 @@ void editorDrawRows(struct abuf *ab) {
           abAppend(ab, "\x1b[7m", 4); // invert colours
           abAppend(ab, &sym, 1);
           abAppend(ab, "\x1b[m", 3);  // reset
-          if (current_color != -1) {
+          if (current_color != NULL) {
             char buf[16];
-            int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", current_color);
+            int clen = snprintf(buf, sizeof(buf), current_color);
             abAppend(ab, buf, clen);
           }
 
         } else if (hl[j] == HL_NORMAL) {
-          if (current_color != -1) {
+          if (current_color != NULL) {
             abAppend(ab, "\x1b[39m", 5);
-            current_color = -1;
+            current_color = NULL;
           }
           abAppend(ab, &c[j], 1);
         } else {
-          int color = editorSyntaxToColor(hl[j]);
+          char* color = editorSyntaxToColor(hl[j]);
           if (color != current_color) {
             current_color = color;
             char buf[16];
-            int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+            int clen = snprintf(buf, sizeof(buf), color);
             abAppend(ab, buf, clen);
           }
           abAppend(ab, &c[j], 1);
