@@ -51,10 +51,6 @@ const char* TERM_MOVE_CURSOR_DEFAULT = "\x1b[H"; // position at beginning of scr
 const char* TERM_MOVE_CURSOR = "\x1b[%d;%dH"; // takes x/y positions
 const char* TERM_QUERY_CURSOR_POSITION = "\x1b[6n";
 
-int isPrefix (char c) {
-  return c == CTRL_KEY('x');
-}
-
 
 enum editorKey {
                 SPACE = 32,
@@ -633,7 +629,6 @@ void editorJoinLines() {
 }
 
 void editorInsertChar(int c){
-  if (isPrefix(c)) return;  // Don't insert control chars
   if (E.cy == E.numrows) { // the cursor is on the tilde after the last line
     editorInsertRow(E.numrows, "", 0);
   }
