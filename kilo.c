@@ -1427,38 +1427,13 @@ void editorProcessKeypressInsertMode() {
     editorFind();
     break;
   case CTRL_KEY('a'):
-  case HOME_KEY:
     E.cx = 0;
     break;
   case CTRL_KEY('e'):
-  case END_KEY:
     if (E.cy < E.numrows)
       E.cx = E.row[E.cy].size;  // move to end of the line
     break;
   case BACKSPACE:
-  case CTRL_KEY('h'): // legacy - C-h produces "8", which used to represent backspace
-  case DEL_KEY:
-    if (c == DEL_KEY) editorMoveCursor(ARROW_RIGHT);
-    editorDelChar();
-    break;
-  case PAGE_UP:
-  case PAGE_DOWN:
-    {
-
-      // Set cursor y position to simulate scrolling the page
-      if (c == PAGE_UP) {
-        E.cy = E.rowoff;
-      } else if (c == PAGE_DOWN) {
-        E.cy = E.rowoff + E.screenrows - 1;
-        if (E.cy > E.numrows) E.cy = E.numrows; // cap to end of file
-      }
-
-      // move the cursor
-      int times = E.screenrows;
-      while (times--)
-        editorMoveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
-    }
-    break;
   case CTRL_KEY('f'):
   case CTRL_KEY('b'):
   case CTRL_KEY('n'):
@@ -1469,12 +1444,6 @@ void editorProcessKeypressInsertMode() {
   case ARROW_RIGHT:
     editorMoveCursor(c);
     break;
-
-  // C-l traditionally refreshes the screen. don't do anything as we refresh by
-  // default after each keypress.
-  case CTRL_KEY('l'):
-    break;
-
   default:
     editorInsertChar(c);
     break;
