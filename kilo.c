@@ -15,6 +15,9 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include "kilo.h"
+#include "point.h"
+
 #define KILO_VERSION "0.0.1"
 #define KILO_TAB_STOP 4
 #define KILO_DEBUG_MODE 1
@@ -80,48 +83,6 @@ enum editorHighlight {
 #define HL_HIGHLIGHT_NUMBERS (1<<0)
 #define HL_HIGHLIGHT_STRINGS (1<<1)
 
-struct editorSyntax {
-  char *filetype;
-  char **filematch;
-  char **keywords;
-  char *singleline_comment_start;
-  char *multiline_comment_start;
-  char *multiline_comment_end;
-  int flags;
-};
-
-typedef struct erow {
-  int idx;  // which row in the buffer it represents
-  int size;  // the row length
-  char *chars;  // the characters in the line
-  int rsize; // the length of the "rendered" line, where eg. \t will expand to n spaces
-  char *render;  // the "rendered" characters in the line
-  unsigned char *hl;  // the highlight property of a character
-  int hl_open_comment;  // whether this line begins or is part of a multiline comment
-} erow;
-
-enum editorMode {
-           MODE_NORMAL = 0,
-           MODE_INSERT = 1
-};
-
-struct editorConfig {
-  int cx, cy;  // cursor
-  int rx;  // render index, as some chars are multi-width (eg. tabs)
-  int rowoff; // file offset
-  int coloff; // same as above
-  int screenrows; // size of the terminal
-  int screencols; // size of the terminal
-  int numrows;  // size of the buffer
-  erow *row;  // current row
-  int dirty;  // is modified?
-  char *filename;  // name of file linked to the buffer
-  char statusmsg[80];  // status message displayed on at bottom of buffer
-  time_t statusmsg_time;  // how long ago status message was written
-  struct editorSyntax *syntax;  // the syntax rules that apply to the buffer
-  struct termios orig_termios;  // the terminal state taken at startup; used to restore on exit
-  int mode;
-};
 
 struct editorConfig E;  // the global state
 
@@ -141,76 +102,6 @@ struct editorSyntax HLDB[] = {
                                HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS
                               },
 };
-
-typedef struct point {
-  int y, x;
-} point;
-
-
-point point_inc(point co) {
-  erow *row = &E.row[co.y];
-  co.x ++;
-  if (co.x >= row->size) { // last column
-    if (co.y == E.numrows - 1) {  // last row in file
-      co.x = row->size;
-      return co;
-    }
-    co.y ++;
-    co.x = 0;
-  }
-  return co;
-}
-
-point point_dec(point co) {
-  co.x --;
-  if (co.x < 0) {
-    if (co.y == 0) {
-      co.x = 0;
-      return co;
-    }
-    co.y --;
-    co.x = E.row[co.y].size;
-  }
-  return co;
-}
-
-
-/* return the last point in the buffer */
-point point_max() {
-  erow *row = &E.row[E.numrows - 1];
-  point co = {row->idx, row->size -1};
-  return co;
-}
-
-/* return the first point in the buffer */
-point point_min() {
-  point co = {0, 0};
-  return co;
-}
-
-int point_gt(point a, point b){
-  if (a.y > b.y)
-    return 1;
-  if ((a.y == b.y) && (a.x == b.x))
-    return 1;
-  return 0;
-}
-
-int point_eq(point a, point b){
-  return ((a.y == b.y) && (a.x == b.x));
-}
-
-int point_lt(point b, point a){
-  return (!point_gt(b, a) && !point_eq(b, a));
-}
-
-int point_gte(point a, point b){
-  return (point_gt(a, b) || point_eq(a, b));
-}
-
-int point_lte(point a, point b){
-  return (point_lt(a, b) || point_eq(a, b));
-}
 
 #define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
 
@@ -1128,35 +1019,6 @@ void editorMoveCursorWordForward() {
   }
 }
 
-// TODO: if a row is empty it doesn't skips the first word on the next row.
-point point_W() {
-  point co = {E.cy, E.cx};
-  point lookahead_co;
-  erow *row = &E.row[co.y];
-  int lookahead_is_space = -1;
-  while (1) {
-    row = &E.row[co.y];
-    lookahead_co = point_inc(co);
-
-    if (point_gte(lookahead_co, point_max()))
-      return point_max();
-
-    lookahead_is_space = isspace(E.row[lookahead_co.y].chars[lookahead_co.x]);
-    if ((co.x == row->size -1) && (lookahead_is_space == 0)
-        && (!isspace(row->chars[co.x]))) {
-      return lookahead_co;
-    } else {  // If transitioning out of a space, return the lookahead
-      if (isspace(row->chars[co.x]) && lookahead_is_space == 0) {
-        return lookahead_co;
-      }
-    }
-
-    // Move cursor forwards and check bounds
-    co = point_inc(co);
-  }
-}
-
-
 /* Vim-like word movement.
    If the cursor is at the start of a word, go to the start of the preceding
    word. Otherwise, go to the start of _this_ word.
@@ -1377,7 +1239,7 @@ void editorProcessKeypressNormalMode() {
     break;
   case 'W':
     {
-      point p = point_W();
+      point p = point_W(E);
       E.cx = p.x;
       E.cy = p.y;
     }
