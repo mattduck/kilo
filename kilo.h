@@ -45,6 +45,10 @@ typedef struct editorConfig {
   struct editorSyntax *syntax;  // the syntax rules that apply to the buffer
   struct termios orig_termios;  // the terminal state taken at startup; used to restore on exit
   int mode;
+  struct editorConfig *undo;  // pointer to the previous state
+  struct editorConfig *redo;  // pointer to the next state
 } editorConfig;
+
+void initEditor (editorConfig *e);
 
 #endif
