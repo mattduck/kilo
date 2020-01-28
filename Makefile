@@ -7,4 +7,4 @@ valgrind: kilo
 	valgrind --log-file=valgrind.log --leak-check=full --show-leak-kinds=all --track-origins=yes ./kilo kilo-org.c
 
 format:
-	clang-format
+	clang-format -i *.c *.h
