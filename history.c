@@ -47,27 +47,6 @@ editorConfig *copyEditorConfig(editorConfig *old) {
   return new;
 }
 
-int history_has_changed(struct editorConfig *a, struct editorConfig *b) {
-  if (a->cx != b->cx)
-    return 1;
-  if (a->cy != b->cy)
-    return 1;
-  if (a->rx != b->rx)
-    return 1;
-  if (a->numrows != b->numrows)
-    return 1;
-  if (a->rowoff != b->rowoff)
-    return 1;
-  if (a->coloff != b->coloff)
-    return 1;
-  for (int i=0; i < a->numrows; i++) {
-    if (!strcmp(a->row[i].render, b->row[i].render)){
-      return 1;
-    }
-  }
-  return 0;
-}
-
 struct editorConfig *history_push (struct editorConfig *snapshot) {
   editorConfig *new_e = copyEditorConfig(snapshot);
   snapshot->redo = new_e;
@@ -77,8 +56,7 @@ struct editorConfig *history_push (struct editorConfig *snapshot) {
 
 struct editorConfig *history_undo (struct editorConfig *e) {
   if (e->undo) {
-    if (history_has_changed(e, e->undo))
-        return e->undo;
+    return e->undo;
   };
   return e;
 }
