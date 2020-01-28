@@ -1,6 +1,6 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
 #include "history.h"
 
@@ -20,7 +20,7 @@ editorConfig *copyEditorConfig(editorConfig *old) {
   new->numrows = old->numrows;
   new->filename = old->filename;
   new->statusmsg_time = old->statusmsg_time;
-  new->syntax = old->syntax;  // pointer but that's fine.
+  new->syntax = old->syntax; // pointer but that's fine.
   new->orig_termios = old->orig_termios;
   new->mode = old->mode;
   new->statusmsg[0] = *old->statusmsg;
@@ -28,7 +28,7 @@ editorConfig *copyEditorConfig(editorConfig *old) {
   // copy row
   new->row = malloc(sizeof(erow) * (old->numrows));
   int i;
-  for (i = 0; i < new->numrows; i++){
+  for (i = 0; i < new->numrows; i++) {
     new->row[i].idx = old->row[i].idx;
     new->row[i].size = old->row[i].size;
     new->row[i].rsize = old->row[i].rsize;
@@ -47,21 +47,21 @@ editorConfig *copyEditorConfig(editorConfig *old) {
   return new;
 }
 
-struct editorConfig *history_push (struct editorConfig *snapshot) {
+struct editorConfig *history_push(struct editorConfig *snapshot) {
   editorConfig *new_e = copyEditorConfig(snapshot);
   snapshot->redo = new_e;
   new_e->undo = snapshot;
   return new_e;
 }
 
-struct editorConfig *history_undo (struct editorConfig *e) {
+struct editorConfig *history_undo(struct editorConfig *e) {
   if (e->undo) {
     return e->undo;
   };
   return e;
 }
 
-struct editorConfig *history_redo (struct editorConfig *e) {
+struct editorConfig *history_redo(struct editorConfig *e) {
   if (e->redo) {
     return e->redo;
   };
