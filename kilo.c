@@ -1281,23 +1281,17 @@ void editorProcessKeypressNormalMode() {
   case 'u':
     {
     E = history_undo(E);
-    /* for (int j = 0; j < E->numrows; j++) { */
-    /*   editorUpdateRow(&E->row[j]); */
-    /* } */
-    /* message("undo: reassigned E: %d", E); */
     }
     break;
   case CTRL_KEY('r'):
     {
     E = history_redo(E);
-    /* message("redo: reassigned E: %d", E); */
     }
     break;
   case 'H':
     // temp - manually invoke history
     {
     E = history_push(E);
-    /* message("History pushed: %d", E); */
     }
     break;
   default:
@@ -1372,12 +1366,8 @@ void initEditor (struct editorConfig *e) {
 
 
 int main(int argc, char *argv[]) {
-
-
   enableRawMode();
-
   initEditor(E);
-  /* printf("RAW"); exit(0); */
 
   if (argc >= 2) {
     editorOpen(argv[1]);
