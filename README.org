@@ -1,3 +1,12 @@
+*Disclaimer*
+
+This project is something fun that I did at the start of 2020. It might be
+useful to help understand how you can build new features on top of Kilo, but
+please read the changes with scepticism as they haven't been thoroughly
+tested. In particular, the basic undo/redo implementation that I started writing
+is full of memory leaks and makes this code unusable as a real editor (see
+https://github.com/mattduck/kilo/issues/1 for more details).
+
 * Kilo
 
 This is my implementation of the Kilo text editor, written by following [[https://viewsourcecode.org/snaptoken/kilo/index.html][Build
